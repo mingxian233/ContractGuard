@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+**/dist
+coverage
+.test-dist
+**/.test-dist
+.vite
+.git
+.github
+**/data/analyses/*
+.env
+.env.*
+!.env.example
+outputs
+*.log
+*.tsbuildinfo

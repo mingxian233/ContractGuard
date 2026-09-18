@@ -1,0 +1,24 @@
+services:
+  contractguard:
+    build:
+      context: .
+    image: contractguard:local
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      PORT: 8080
+      HOST: 0.0.0.0
+      CONTRACTGUARD_DATA_DIR: /app/data/analyses
+      CONTRACTGUARD_AI_ENABLED: ${CONTRACTGUARD_AI_ENABLED:-false}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      CONTRACTGUARD_AI_TIMEOUT_MS: ${CONTRACTGUARD_AI_TIMEOUT_MS:-30000}
+      CONTRACTGUARD_AI_MAX_CHANGES: ${CONTRACTGUARD_AI_MAX_CHANGES:-50}
+      CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS: ${CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS:-8192}
+    volumes:
+      - contractguard-data:/app/data/analyses
+    restart: unless-stopped
+
+volumes:
+  contractguard-data:

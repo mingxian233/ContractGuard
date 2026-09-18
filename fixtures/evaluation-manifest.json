@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "description": "Human-reviewable integration expectations for the bundled ContractGuard examples. This is a smoke-test manifest, not a statistically representative benchmark.",
+  "cases": [
+    {
+      "id": "petstore-breaking",
+      "baseline": "petstore-v1.yaml",
+      "candidate": "petstore-v2-breaking.yaml",
+      "expectedCompatible": false,
+      "mustContain": [
+        {
+          "ruleId": "PATH_REMOVED",
+          "severity": "breaking",
+          "locationContains": "/health"
+        },
+        {
+          "ruleId": "OPERATION_ID_CHANGED",
+          "severity": "potentially-breaking",
+          "locationContains": "/pets"
+        },
+        {
+          "ruleId": "PARAMETER_REQUIRED",
+          "severity": "breaking",
+          "locationContains": "limit"
+        },
+        {
+          "ruleId": "PARAMETER_ADDED_REQUIRED",
+          "severity": "breaking",
+          "locationContains": "tenantId"
+        },
+        {
+          "ruleId": "REQUEST_MEDIA_TYPE_REMOVED",
+          "severity": "breaking",
+          "locationContains": "application/x-www-form-urlencoded"
+        },
+        {
+          "ruleId": "SCHEMA_REQUIRED_PROPERTY_ADDED",
+          "severity": "breaking",
+          "locationContains": "ownerId"
+        },
+        {
+          "ruleId": "SCHEMA_TYPE_CHANGED",
+          "severity": "breaking",
+          "locationContains": "id"
+        },
+        {
+          "ruleId": "SCHEMA_PROPERTY_REMOVED",
+          "severity": "breaking",
+          "locationContains": "name"
+        },
+        {
+          "ruleId": "SECURITY_STRENGTHENED",
+          "severity": "breaking",
+          "locationContains": "security"
+        }
+      ]
+    },
+    {
+      "id": "petstore-compatible",
+      "baseline": "petstore-v1.yaml",
+      "candidate": "petstore-v2-compatible.yaml",
+      "expectedCompatible": true,
+      "forbiddenSeverities": [
+        "breaking",
+        "potentially-breaking"
+      ],
+      "mustContain": [
+        {
+          "ruleId": "PARAMETER_ADDED_OPTIONAL",
+          "severity": "non-breaking",
+          "locationContains": "cursor"
+        },
+        {
+          "ruleId": "SCHEMA_ENUM_WIDENED",
+          "severity": "non-breaking",
+          "locationContains": "tags"
+        },
+        {
+          "ruleId": "PATH_ADDED",
+          "severity": "non-breaking",
+          "locationContains": "/pets/{petId}/photo"
+        }
+      ]
+    }
+  ]
+}

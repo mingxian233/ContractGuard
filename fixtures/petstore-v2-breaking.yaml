@@ -1,0 +1,158 @@
+openapi: 3.0.3
+info:
+  title: ContractGuard Petstore
+  version: 2.0.0
+  description: Deliberately incompatible candidate used by the ContractGuard demo.
+servers:
+  - url: https://api.example.com/v2
+security:
+  - apiKey: []
+paths:
+  /pets:
+    get:
+      operationId: searchPets
+      summary: Search pets
+      parameters:
+        - name: limit
+          in: query
+          required: true
+          description: Maximum number of records to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: tags
+          in: query
+          required: false
+          description: Filter by pet category
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - dog
+                - cat
+        - name: tenantId
+          in: header
+          required: true
+          description: Tenant making the request
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pet'
+    post:
+      operationId: createPet
+      summary: Create a pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPet'
+          application/xml:
+            schema:
+              $ref: '#/components/schemas/NewPet'
+      responses:
+        '200':
+          description: Pet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '400':
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /pets/{petId}:
+    parameters:
+      - name: petId
+        in: path
+        required: true
+        description: Textual pet identifier
+        schema:
+          type: string
+    get:
+      operationId: getPet
+      summary: Get one pet
+      responses:
+        '200':
+          description: Pet details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '404':
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    NewPet:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - ownerId
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        ownerId:
+          type: string
+          minLength: 1
+        category:
+          type: string
+          enum:
+            - dog
+            - cat
+        note:
+          type: string
+          maxLength: 200
+    Pet:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - available
+            - pending
+            - sold
+            - archived
+        createdAt:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+        message:
+          type: string

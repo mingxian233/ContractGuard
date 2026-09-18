@@ -1,0 +1,47 @@
+import type { RuleDefinition } from "./types.js";
+
+export const ruleCatalog: readonly RuleDefinition[] = Object.freeze([
+  { id: "PATH_REMOVED", title: "Path removed", category: "path", defaultSeverity: "breaking", description: "A previously documented endpoint path is no longer available." },
+  { id: "PATH_ADDED", title: "Path added", category: "path", defaultSeverity: "non-breaking", description: "A new endpoint path was added." },
+  { id: "OPERATION_REMOVED", title: "Operation removed", category: "operation", defaultSeverity: "breaking", description: "A previously documented HTTP operation was removed." },
+  { id: "OPERATION_ADDED", title: "Operation added", category: "operation", defaultSeverity: "non-breaking", description: "A new HTTP operation was added." },
+  { id: "PARAMETER_REMOVED", title: "Parameter removed", category: "parameter", defaultSeverity: "potentially-breaking", description: "A request parameter accepted by the old contract was removed." },
+  { id: "PARAMETER_ADDED_REQUIRED", title: "Required parameter added", category: "parameter", defaultSeverity: "breaking", description: "Existing callers do not supply the new required parameter." },
+  { id: "PARAMETER_ADDED_OPTIONAL", title: "Optional parameter added", category: "parameter", defaultSeverity: "non-breaking", description: "An optional request parameter was added." },
+  { id: "PARAMETER_REQUIRED", title: "Parameter made required", category: "parameter", defaultSeverity: "breaking", description: "A formerly optional request parameter became required." },
+  { id: "PARAMETER_OPTIONAL", title: "Parameter made optional", category: "parameter", defaultSeverity: "non-breaking", description: "A formerly required request parameter became optional." },
+  { id: "REQUEST_BODY_REMOVED", title: "Request body removed", category: "request-body", defaultSeverity: "potentially-breaking", description: "The operation no longer documents an accepted request body." },
+  { id: "REQUEST_BODY_ADDED_REQUIRED", title: "Required request body added", category: "request-body", defaultSeverity: "breaking", description: "Existing callers do not send the newly required body." },
+  { id: "REQUEST_BODY_ADDED_OPTIONAL", title: "Optional request body added", category: "request-body", defaultSeverity: "non-breaking", description: "An optional request body was added." },
+  { id: "REQUEST_BODY_REQUIRED", title: "Request body made required", category: "request-body", defaultSeverity: "breaking", description: "The existing request body became required." },
+  { id: "REQUEST_BODY_OPTIONAL", title: "Request body made optional", category: "request-body", defaultSeverity: "non-breaking", description: "The request body is no longer required." },
+  { id: "REQUEST_MEDIA_TYPE_REMOVED", title: "Request media type removed", category: "request-body", defaultSeverity: "breaking", description: "A previously accepted request representation was removed." },
+  { id: "REQUEST_MEDIA_TYPE_ADDED", title: "Request media type added", category: "request-body", defaultSeverity: "non-breaking", description: "A new request representation is accepted." },
+  { id: "RESPONSE_STATUS_REMOVED", title: "Response status removed", category: "response", defaultSeverity: "breaking", description: "A previously documented response status is no longer defined." },
+  { id: "RESPONSE_STATUS_ADDED", title: "Response status added", category: "response", defaultSeverity: "non-breaking", description: "A response status was added to the contract." },
+  { id: "RESPONSE_MEDIA_TYPE_REMOVED", title: "Response media type removed", category: "response", defaultSeverity: "breaking", description: "A previously documented response representation was removed." },
+  { id: "RESPONSE_MEDIA_TYPE_ADDED", title: "Response media type added", category: "response", defaultSeverity: "non-breaking", description: "A response representation was added." },
+  { id: "SCHEMA_TYPE_CHANGED", title: "Schema type changed", category: "schema", defaultSeverity: "breaking", description: "The JSON Schema type changed incompatibly." },
+  { id: "SCHEMA_PRESENCE_CHANGED", title: "Schema presence changed", category: "schema", defaultSeverity: "breaking", description: "A representation gained or lost a schema, changing whether its instances are constrained." },
+  { id: "SCHEMA_BOOLEAN_CHANGED", title: "Boolean schema changed", category: "schema", defaultSeverity: "breaking", description: "A true/false JSON Schema changed the accepted or produced instance set." },
+  { id: "SCHEMA_ENUM_NARROWED", title: "Enum narrowed", category: "schema", defaultSeverity: "breaking", description: "An input enum accepts fewer values, or an output enum guarantees fewer possible values." },
+  { id: "SCHEMA_ENUM_WIDENED", title: "Enum widened", category: "schema", defaultSeverity: "non-breaking", description: "An input enum accepts more values; for outputs this may require client changes." },
+  { id: "SCHEMA_REQUIRED_PROPERTY_ADDED", title: "Required property added", category: "schema", defaultSeverity: "breaking", description: "A required object property changed." },
+  { id: "SCHEMA_REQUIRED_PROPERTY_REMOVED", title: "Required property removed", category: "schema", defaultSeverity: "non-breaking", description: "An object property is no longer required." },
+  { id: "SCHEMA_PROPERTY_REMOVED", title: "Property removed", category: "schema", defaultSeverity: "breaking", description: "An object property was removed from the schema." },
+  { id: "SCHEMA_PROPERTY_ADDED", title: "Property added", category: "schema", defaultSeverity: "non-breaking", description: "An object property was added to the schema." },
+  { id: "SCHEMA_CONSTRAINT_TIGHTENED", title: "Constraint tightened", category: "schema", defaultSeverity: "breaking", description: "A schema accepts a smaller set of inputs or emits a broader set of outputs." },
+  { id: "SCHEMA_CONSTRAINT_RELAXED", title: "Constraint relaxed", category: "schema", defaultSeverity: "non-breaking", description: "A schema accepts a broader set of inputs or guarantees a smaller set of outputs." },
+  { id: "SCHEMA_UNSUPPORTED_KEYWORD_CHANGED", title: "Partially supported schema keyword changed", category: "schema", defaultSeverity: "potentially-breaking", description: "A validation keyword outside the precise containment engine changed and requires review." },
+  { id: "SECURITY_STRENGTHENED", title: "Security strengthened", category: "security", defaultSeverity: "breaking", description: "A new authentication requirement or scope is needed." },
+  { id: "SECURITY_RELAXED", title: "Security relaxed", category: "security", defaultSeverity: "non-breaking", description: "Authentication requirements were relaxed." },
+  { id: "SECURITY_SCHEME_CHANGED", title: "Security scheme changed", category: "security", defaultSeverity: "potentially-breaking", description: "The credential wire format or authentication discovery configuration changed." },
+  { id: "OPERATION_ID_CHANGED", title: "Operation identifier changed", category: "metadata", defaultSeverity: "potentially-breaking", description: "Generated SDK method names may change." },
+  { id: "DEPRECATED_ADDED", title: "Operation deprecated", category: "metadata", defaultSeverity: "info", description: "The operation is newly marked as deprecated." },
+  { id: "DEPRECATED_REMOVED", title: "Deprecation removed", category: "metadata", defaultSeverity: "non-breaking", description: "The operation is no longer marked as deprecated." },
+  { id: "METADATA_CHANGED", title: "Metadata changed", category: "metadata", defaultSeverity: "info", description: "Human-readable operation metadata changed." },
+]);
+
+export function getRule(ruleId: string): RuleDefinition | undefined {
+  return ruleCatalog.find((rule) => rule.id === ruleId);
+}

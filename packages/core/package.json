@@ -1,0 +1,34 @@
+{
+  "name": "@contractguard/core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deterministic OpenAPI 3.0/3.1 backward-compatibility analysis engine.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.tests.json && node scripts/run-vitest.mjs",
+    "test:coverage": "tsc -p tsconfig.tests.json && node scripts/run-vitest.mjs --coverage",
+    "clean": "node -e \"for(const p of ['dist','.test-dist'])require('node:fs').rmSync(p,{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

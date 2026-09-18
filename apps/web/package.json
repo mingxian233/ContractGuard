@@ -1,0 +1,27 @@
+{
+  "name": "@contractguard/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
+    "build:portable": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && node scripts/build-portable.mjs",
+    "preview": "vite preview",
+    "test": "tsc -p tsconfig.test.json && node node_modules/.test-build/utils.test.js",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@vue/compiler-sfc": "^3.5.13",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "rollup": "^4.50.0",
+    "typescript": "^5.9.2",
+    "vite": "^6.1.0",
+    "vue-tsc": "^2.2.0"
+  }
+}

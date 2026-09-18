@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Verify the breaking fixture fails the policy
+        shell: bash
+        run: |
+          set +e
+          node apps/cli/dist/index.js compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaking.yaml --format json > contractguard-report.json
+          code=$?
+          test "$code" -eq 2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contractguard-report
+          path: contractguard-report.json

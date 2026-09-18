@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.test-dist/
+**/.test-dist/
+.vite/
+.DS_Store
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+**/data/analyses/*
+!**/data/analyses/.gitkeep
+apps/web/public/demo/*.json
+contractguard-report.*
