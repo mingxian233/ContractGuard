@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
-import { analyzeCompatibility, ContractGuardError, ruleCatalog } from '@contractguard/core';
+import { analyzeCompatibility, ContractGuardError, ENGINE_VERSION, ruleCatalog } from '@contractguard/core';
 import { createDeepSeekAiService, type DeepSeekAiConfig } from './ai/deepseek.js';
 import { AiServiceError, type AiReviewLanguage, type AiReviewService } from './ai/types.js';
 import { renderReport, type ReportFormat } from './reports.js';
@@ -42,7 +42,7 @@ export function createApp(options: AppOptions = {}): Express {
   app.use(express.json({ limit: maxSpecBytes * 2 + 64 * 1024 }));
 
   app.get('/api/health', (_request, response) => {
-    response.json({ status: 'ok', service: 'contractguard-api', version: '1.0.0' });
+    response.json({ status: 'ok', service: 'contractguard-api', version: ENGINE_VERSION });
   });
 
   app.get('/api/rules', (_request, response) => {
@@ -162,8 +162,12 @@ function routeId(value: string | string[] | undefined): string {
 }
 
 function validateName(value: unknown, field: string): void {
-  if (value !== undefined && (typeof value !== 'string' || value.length > 200)) {
-    throw httpError(400, 'INVALID_REQUEST', `${field} must be a string no longer than 200 characters.`);
+  if (value !== undefined && (
+    typeof value !== 'string'
+    || value.length > 200
+    || /[\u0000-\u001F\u007F]/.test(value)
+  )) {
+    throw httpError(400, 'INVALID_REQUEST', `${field} must be a string no longer than 200 characters and contain no control characters.`);
   }
 }
 

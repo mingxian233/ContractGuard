@@ -1,39 +1,177 @@
 # ContractGuard
 
-[English](README.en.md) | 简体中文
+[English](README.en.md) · 简体中文
 
-**本地优先、可解释、可接入 CI 的 OpenAPI 兼容性分析平台。**
+[![CI](https://github.com/mingxian233/ContractGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/mingxian233/ContractGuard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2f6f61.svg)](LICENSE)
+[![Node.js >= 22.13](https://img.shields.io/badge/Node.js-%3E%3D22.13-3c873a.svg)](package.json)
 
-ContractGuard compares a baseline OpenAPI contract with a candidate version, detects changes that may break existing consumers, and explains every finding with a stable rule ID and an exact contract location. A deterministic engine is responsible for all compatibility decisions; an optional DeepSeek integration can turn those results into migration and testing guidance.
+**本地优先、结果可解释、可接入 CI 的 OpenAPI 向后兼容性分析平台。**
 
-ContractGuard 当前面向 OpenAPI 3.0 和 3.1 系列。规范原文可参阅 [OpenAPI 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)、[OpenAPI 3.1.2](https://spec.openapis.org/oas/v3.1.2.html)以及 [OpenAPI 官方版本索引](https://spec.openapis.org/oas/)。
+ContractGuard 比较一份已经发布的 OpenAPI 契约（baseline）与一份待发布契约（candidate），判断新版本是否可能破坏现有调用方。它不仅展示“改了什么”，还会说明风险等级、触发规则、准确位置、前后证据以及建议的迁移方式。
 
-## 它解决什么问题
+兼容性结论由确定性规则引擎产生；可选的 DeepSeek 集成只负责把既有结果整理成风险摘要、迁移计划和测试建议，不参与评分与发布门禁。
 
-两份 OpenAPI 文档都可能完全合法，新版本仍然会破坏旧客户端。例如：
+当前版本面向 OpenAPI 3.0/3.1。语法定义请以 [OpenAPI 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)、[OpenAPI 3.1.2](https://spec.openapis.org/oas/v3.1.2.html)及[官方版本索引](https://spec.openapis.org/oas/)为准。
 
-- 把可选查询参数改为必填后，旧版 App 开始收到 `400`；
-- 删除响应字段后，仍在读取该字段的前端出现运行时错误；
-- 收窄请求枚举后，过去合法的输入不再被接受；
-- 新增响应枚举值后，使用穷举分支的旧 SDK 无法处理；
-- 修改成功状态码后，客户端把正常结果当成异常。
+## 为什么需要它
 
-普通 OpenAPI 校验器只能判断规范是否有效，Git diff 只能展示文本变化，服务端测试通常只覆盖当前实现。ContractGuard 回答的是更接近发布决策的问题：**这次 API 升级可能破坏哪些既有调用方式，风险在哪里，应该怎样迁移和验证？**
+两份 OpenAPI 文档都可以通过语法校验，升级仍可能破坏旧客户端。例如：
+
+- 把可选查询参数改成必填，旧版 App 随即收到 `400`；
+- 删除响应字段，仍在读取该字段的前端或 SDK 出现异常；
+- 收窄请求枚举，使过去合法的输入不再被接受；
+- 扩大响应枚举，使使用穷举分支的客户端遇到未知值；
+- 修改成功状态码或新增鉴权要求，改变既有调用流程。
+
+规范校验器回答“文档是否合法”，文本 diff 回答“哪些行发生变化”。ContractGuard 回答的是发布前更直接的问题：**旧客户端可能在哪里失效，为什么，以及团队应优先迁移和验证什么？**
+
+## 适合哪些场景
+
+| 场景 | 用法 |
+| --- | --- |
+| Pull request 门禁 | 在 CI 中比较已发布契约与本次候选契约，遇到高风险变更时以退出码 `2` 阻止合并 |
+| API 设计评审 | 在实现之前通过 Web 工作台查看风险位置、证据与修复建议 |
+| SDK/客户端迁移 | 导出 Markdown 或 HTML 报告，并用可选 AI 解读生成分阶段迁移与回归测试清单 |
+| 版本审计与交接 | 将 JSON 报告留给自动化流程，将分析历史保存在本地文件中供团队复核 |
+
+ContractGuard 是静态契约分析工具，不是运行时监控、API 安全扫描器或生产流量验证器。
 
 ## 核心能力
 
-| 能力 | 说明 |
+| 能力 | 当前实现 |
 | --- | --- |
-| 确定性规则引擎 | 比较路径、操作、参数、请求体、响应、Schema、媒体类型和鉴权变化 |
-| 方向感知判断 | 区分请求与响应的兼容方向，避免把所有结构差异等同处理 |
-| 可解释结果 | 输出稳定规则编号、严重等级、规范位置、前后证据和修复建议 |
-| Web 工作台 | 导入或粘贴两份规范，筛选结果、查看历史并导出报告 |
-| CLI 与 CI 门禁 | 根据风险阈值返回稳定退出码，可用于 pull request 检查 |
-| REST API | 创建、查询和删除分析，读取规则目录，导出 JSON、Markdown、HTML |
-| 可选 DeepSeek 解读 | 根据已有 finding 生成风险摘要、迁移步骤与测试建议 |
-| 本地优先 | 核心分析无需云服务或数据库；AI 默认关闭 |
+| 确定性规则引擎 | 检查路径、操作、参数、请求体、响应、媒体类型、Schema、鉴权与部分元数据变化 |
+| 方向感知分析 | 分别判断请求输入与响应输出，避免把同一 Schema 变化机械地归为相同风险 |
+| 可解释结果 | 输出稳定规则 ID、严重等级、契约位置、前后证据和修复建议 |
+| Web 工作台 | 导入、拖拽或粘贴两份 YAML/JSON 规范，筛选结果、查看历史、浏览规则并导出报告 |
+| CLI / CI 门禁 | 支持 `table`、`json`、`markdown`、`html` 输出和可配置失败阈值 |
+| REST API | 创建、读取和删除分析，读取规则目录，导出 JSON/Markdown/HTML 报告 |
+| 本地持久化 | 分析记录以 JSON 文件保存在本机，无需数据库 |
+| 可选 DeepSeek 解读 | 对经过裁剪的 finding 生成结构化摘要、迁移步骤和测试建议 |
 
-## 工作方式
+## 五分钟运行
+
+### 1. 准备环境
+
+- Node.js 22.13 或更高版本；
+- pnpm 11.19.0（仓库已通过 `packageManager` 与锁文件固定版本）。
+
+Node.js 22 通常可以通过 Corepack 启用 pnpm：
+
+```bash
+corepack enable
+corepack prepare pnpm@11.19.0 --activate
+```
+
+如果系统没有 Corepack：
+
+```bash
+npm install --global pnpm@11.19.0
+```
+
+### 2. 安装、构建并启动
+
+```bash
+git clone https://github.com/mingxian233/ContractGuard.git
+cd ContractGuard
+pnpm install --frozen-lockfile
+pnpm build
+pnpm start
+```
+
+打开 `http://localhost:8080`，点击“载入演示规范”，再点击“运行兼容性分析”，即可完成第一次分析。AI 默认关闭，因此这一步不需要 API Key，也不会调用云端模型。
+
+开发模式使用：
+
+```bash
+pnpm dev
+```
+
+此时 Web 开发服务器位于 `http://localhost:5173`，并将 `/api` 代理到本机 `8080` 端口。
+
+### Windows 启动
+
+如果 PowerShell 拦截 `pnpm.ps1`，使用对应的 `.cmd` 命令：
+
+```powershell
+pnpm.cmd install --frozen-lockfile
+pnpm.cmd build
+.\start-contractguard.bat
+```
+
+启动脚本会提示输入可选的 DeepSeek API Key。直接按 Enter 将仅启动本地规则引擎；输入的 Key 只存在于该次服务进程的环境中，不会写入项目文件。
+
+## 使用 CLI 与 CI
+
+完成构建后，可运行仓库自带的破坏性变更示例：
+
+```bash
+pnpm demo
+```
+
+生成 Markdown 报告并在发现 `breaking` 变化时让流程失败：
+
+```bash
+pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaking.yaml --format markdown --output contractguard-report.md --fail-on breaking
+```
+
+`--fail-on` 可取 `breaking`、`potentially-breaking` 或 `never`。CLI 退出码如下：
+
+- `0`：分析完成，且没有达到指定失败阈值；
+- `1`：文件读取、输入解析或程序执行失败；
+- `2`：发现达到指定阈值的风险。
+
+可直接复制的 GitHub Actions 示例位于 [`examples/github-actions-contractguard.yml`](examples/github-actions-contractguard.yml)。示例假设仓库中存在 `openapi/released.yaml` 和 `openapi/candidate.yaml`，使用前需替换成自己的文件路径。
+
+## 可选：启用 DeepSeek
+
+AI 解读不是核心分析的前置条件。服务端需要显式启用并读取以下环境变量：
+
+```dotenv
+CONTRACTGUARD_AI_ENABLED=true
+DEEPSEEK_API_KEY=<YOUR_DEEPSEEK_API_KEY>
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-flash
+CONTRACTGUARD_AI_TIMEOUT_MS=30000
+CONTRACTGUARD_AI_MAX_CHANGES=50
+CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS=8192
+```
+
+`.env.example` 是配置模板；直接运行 Node.js 时不会自动加载 `.env`，需要由当前 shell、进程管理器或容器注入变量。Windows 用户可优先使用 `start-contractguard.bat`，避免把 Key 写进命令历史。
+
+数据与决策边界：
+
+- API Key 只由服务端读取，不会返回给浏览器；
+- 默认不发送原始 OpenAPI，也不发送 finding 的完整 `before`/`after` 对象；
+- 发往模型的是有数量与长度上限的 finding 摘要，仍可能包含内部接口名称；
+- 模型响应必须通过运行时结构校验；
+- AI 输出不能改变规则等级、兼容性得分、`compatible` 值或 CI 退出码。
+
+完整的 PowerShell、bash、Docker、状态检查和 API 调用示例见 [`docs/ai-report-interpreter.md`](docs/ai-report-interpreter.md)。调用云端模型可能产生费用；启用前请确认组织的数据与隐私政策。
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+打开 `http://localhost:8080`。Compose 默认只绑定 `127.0.0.1`，分析历史保存在 Docker volume 中。本项目没有内置身份认证、TLS、租户隔离、速率限制或 AI 预算控制，不能直接暴露到公网。部署要求见 [Security Policy](SECURITY.md)。
+
+## 常见问题
+
+| 现象 | 处理方法 |
+| --- | --- |
+| 找不到 `pnpm` | 运行 `corepack enable` 和 `corepack prepare pnpm@11.19.0 --activate`，或使用 npm 全局安装固定版本 |
+| PowerShell 禁止运行 `pnpm.ps1` | 将命令改为 `pnpm.cmd`，无需修改系统执行策略 |
+| 页面显示“分析引擎离线” | 确认 API 正在 `8080` 端口运行；开发模式需同时保留 `pnpm dev` 启动的两个进程 |
+| CLI 返回退出码 `2` | 这是达到 `--fail-on` 风险阈值的预期门禁结果，不代表程序崩溃 |
+| AI 显示未启用或未配置 | 同时设置 `CONTRACTGUARD_AI_ENABLED=true` 和 `DEEPSEEK_API_KEY`，然后重启 API 进程 |
+| AI 返回无效或截断的 JSON | 重试；若持续出现，调高 `CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS` 或降低 `CONTRACTGUARD_AI_MAX_CHANGES` |
+
+更完整的运行问题见 [用户指南的故障排查](docs/user-guide.md#11-故障排查)和 [AI 错误说明](docs/ai-report-interpreter.md#10-错误与降级)。
+
+## 系统如何工作
 
 ```mermaid
 flowchart LR
@@ -49,160 +187,48 @@ flowchart LR
     M --> AI[Optional DeepSeek explanation]
 ```
 
-DeepSeek 不参与严重等级、兼容性得分或 CI 退出码的计算。即使模型不可用，核心分析仍可完整运行。
-
-## 快速开始
-
-### 环境要求
-
-- Node.js 22.13 或更高版本；
-- pnpm 11（版本已在 `packageManager` 字段和锁文件中固定）。
-
-如果本机尚未启用 pnpm，可优先使用 Node 自带的 Corepack：
-
-```bash
-corepack enable
-```
-
-如果系统没有 Corepack，也可以运行：
-
-```bash
-npm install --global pnpm@11.19.0
-```
-
-### 安装并运行
-
-```bash
-pnpm install --frozen-lockfile
-pnpm build
-pnpm start
-```
-
-浏览器访问 `http://localhost:8080`。
-
-开发模式使用：
-
-```bash
-pnpm dev
-```
-
-Web 开发服务器默认监听 `5173`，API 默认监听 `8080`。
-
-### Windows
-
-PowerShell 如果拦截 `pnpm.ps1`，直接使用带 `.cmd` 的命令：
-
-```powershell
-pnpm.cmd install --frozen-lockfile
-pnpm.cmd build
-.\start-contractguard.bat
-```
-
-启动脚本会安全读取可选的 DeepSeek API Key。直接按 Enter 可以关闭 AI 解读并只运行本地规则引擎；输入的 Key 只存在于当前进程，不会写入项目文件。
-
-## 运行内置示例
-
-项目包含一组兼容变更和一组破坏性变更：
-
-```bash
-pnpm demo
-```
-
-也可以直接调用 CLI：
-
-```bash
-pnpm contractguard compare \
-  fixtures/petstore-v1.yaml \
-  fixtures/petstore-v2-breaking.yaml \
-  --format markdown \
-  --output contractguard-report.md \
-  --fail-on breaking
-```
-
-CLI 退出码：
-
-- `0`：分析完成且没有达到失败阈值；
-- `1`：输入、解析或执行错误；
-- `2`：发现达到 `--fail-on` 阈值的变化。
-
-可复制的 GitHub Actions 示例位于 [`examples/github-actions-contractguard.yml`](examples/github-actions-contractguard.yml)。
-
-## 可选：启用 DeepSeek
-
-AI 解读默认关闭，核心功能不需要 API Key。服务端使用以下环境变量：
-
-```dotenv
-CONTRACTGUARD_AI_ENABLED=true
-DEEPSEEK_API_KEY=<YOUR_DEEPSEEK_API_KEY>
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-flash
-CONTRACTGUARD_AI_TIMEOUT_MS=30000
-CONTRACTGUARD_AI_MAX_CHANGES=50
-CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS=8192
-```
-
-安全边界：
-
-- Key 只从服务端环境读取，不会返回给浏览器；
-- 默认不向模型发送原始 OpenAPI，只发送有上限的规则结果和用户填写的关注点；
-- 模型响应必须通过运行时结构校验；
-- AI 输出不能覆盖规则等级、得分、兼容结论或 CI 状态。
-
-PowerShell、bash、Docker 和接口调用示例见 [`docs/ai-report-interpreter.md`](docs/ai-report-interpreter.md)。使用云端模型可能产生费用，也可能暴露 finding 中包含的内部接口名称，请先评估组织的数据策略。
-
-## Docker
-
-```bash
-docker compose up --build
-```
-
-访问 `http://localhost:8080`。分析历史保存在 Docker volume 中，Compose 默认只绑定 `127.0.0.1`。本项目没有提供身份认证；不要在未配置 TLS、鉴权、限流和预算保护的情况下直接暴露到公网。
+同一套核心引擎由 Web、REST API 与 CLI 复用。DeepSeek 位于单独的解释支路；模型不可用时，分析、门禁和报告导出仍可正常工作。
 
 ## 工程结构
 
 ```text
 apps/
-  api/       REST API、报告导出、本地持久化、DeepSeek 适配器
-  cli/       面向本地与 CI 的命令行工具
+  api/       REST API、本地持久化、报告导出、DeepSeek 适配器
+  cli/       本地与 CI 命令行入口
   web/       Vue 3 Web 工作台
 packages/
-  core/      OpenAPI 解析、引用解析、兼容性规则与评分
-fixtures/    可复现的兼容/不兼容样例与期望清单
+  core/      OpenAPI 解析、本地引用解析、兼容性规则与评分
+fixtures/    可复现的兼容/不兼容样例与评估清单
 examples/    GitHub Actions 与 AI 请求示例
-docs/        架构、规则、API、使用、开发和评估文档
+docs/        架构、规则、API、使用、开发、评估和验证文档
 scripts/     端到端冒烟测试
 ```
 
-## 交付内容
-
-| 内容 | 位置 | 用途 |
-| --- | --- | --- |
-| 核心规则引擎 | `packages/core/` | OpenAPI 解析、本地 `$ref`、方向感知规则和评分 |
-| REST API | `apps/api/` | 分析记录、报告导出、本地持久化和 DeepSeek 适配器 |
-| CLI / CI | `apps/cli/` | 文件比较、格式输出和阈值退出码 |
-| Web 工作台 | `apps/web/` | 双规范输入、结果筛选、历史记录和 AI 解读 |
-| 样例与评估 | `fixtures/`、`examples/` | 兼容/破坏性样例、评估清单和集成示例 |
-| 项目文档 | `docs/`、`README*.md` | 使用、架构、规则、API、AI、评估和验证说明 |
-| 部署与启动 | `Dockerfile`、`docker-compose.yml`、`start-contractguard.bat` | Docker 与 Windows 启动 |
-| 自动化验证 | `.github/workflows/ci.yml`、`scripts/smoke-test.mjs` | 构建、类型检查、单元测试和冒烟测试 |
-| 治理文件 | `LICENSE`、`SECURITY.md`、`.env.example` | 许可证、安全边界和配置模板 |
-
-完整状态和发布边界见 [交付清单](docs/delivery-checklist.md)。仓库不包含依赖目录、构建产物、运行历史、真实 API Key 或其他本机敏感数据。
+这个项目重点展示的不是“接入了一个模型”，而是完整的软件工程闭环：领域规则建模、前后端复用、稳定 CLI 契约、可复现实例、自动化测试、CI 门禁，以及将生成式解释与确定性决策隔离的可信 AI 设计。
 
 ## 验证
 
 ```bash
-pnpm build
-pnpm typecheck
-pnpm test
-node scripts/smoke-test.mjs
+pnpm check
 ```
 
-GitHub Actions 会在 Node.js 22 上重新安装锁定依赖、执行构建和测试，并验证破坏性 fixture 能正确触发 CI 失败策略。
+`pnpm check` 会依次完成构建、类型检查、测试、文档链接与示例配置检查，以及端到端冒烟验证。需要定向重跑时可使用 `pnpm docs:check`、`pnpm config:check` 或 `pnpm smoke`。GitHub Actions 会在 Node.js 22 环境中执行同类检查，并确认破坏性 fixture 能触发预期门禁。已记录的本地验证范围见 [`docs/verification.md`](docs/verification.md)；它不等同于对所有真实 OpenAPI 的准确率证明。
 
-## 文档
+## 当前边界
 
-- [项目介绍与实际使用场景](docs/project-overview.md)
+ContractGuard 重点支持 OpenAPI 3.0/3.1 与同一文档内的 JSON Pointer `$ref`。以下内容仍需要其他工具或人工评审：
+
+- Swagger 2.0；
+- 外部 URL 与跨文件引用；
+- 一般化的 `oneOf`、`anyOf`、`allOf`、discriminator 等组合语义；
+- 业务规则、数据库迁移、性能、SLA 与运行时流量行为；
+- 完整的消费者契约测试、集成测试和灰度发布策略。
+
+兼容性得分是用于风险排序的启发式指标，不是生产安全的数学证明。规则覆盖与判定口径见 [`docs/compatibility-rules.md`](docs/compatibility-rules.md)。
+
+## 文档导航
+
+- [项目背景、实际场景与展示价值](docs/project-overview.md)
 - [用户指南](docs/user-guide.md)
 - [系统架构](docs/architecture.md)
 - [兼容性规则与判定方向](docs/compatibility-rules.md)
@@ -211,19 +237,8 @@ GitHub Actions 会在 Node.js 22 上重新安装锁定依赖、执行构建和�
 - [开发与扩展规则](docs/development.md)
 - [评估方法与结果](docs/evaluation.md)
 - [验证记录](docs/verification.md)
-- [交付清单](docs/delivery-checklist.md)
-
-## 当前边界
-
-ContractGuard 当前面向 OpenAPI 3.0/3.1，并重点支持本地 JSON Pointer `$ref`。以下内容仍需要其他工具或人工评审：
-
-- Swagger 2.0；
-- 外部 URL 和跨文件引用；
-- 一般化的 `oneOf`、`anyOf`、`allOf` 包含关系；
-- 数据库迁移、业务副作用和运行时流量行为；
-- 完整的消费者契约测试与灰度发布策略。
-
-兼容性得分用于风险排序，不是生产安全的数学证明。详细覆盖范围见 [`docs/compatibility-rules.md`](docs/compatibility-rules.md)。
+- [交付与发布检查](docs/delivery-checklist.md)
+- [安全策略](SECURITY.md)
 
 ## License
 

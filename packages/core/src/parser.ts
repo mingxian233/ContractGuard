@@ -3,6 +3,8 @@ import { parse as parseYaml } from "yaml";
 import { ContractGuardError } from "./errors.js";
 import type { OpenApiDocument, OpenApiInput, ParsedOpenApi } from "./types.js";
 
+const SUPPORTED_OPENAPI_VERSION = /^3\.(?:0|1)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -34,8 +36,7 @@ function validateDocument(value: unknown): OpenApiDocument {
     );
   }
 
-  const [major, minor] = value.openapi.split(".").map(Number);
-  if (major !== 3 || (minor !== 0 && minor !== 1)) {
+  if (!SUPPORTED_OPENAPI_VERSION.test(value.openapi)) {
     throw new ContractGuardError(
       "UNSUPPORTED_SPEC_VERSION",
       `OpenAPI ${value.openapi} is not supported. ContractGuard supports OpenAPI 3.0.x and 3.1.x.`,
@@ -128,7 +129,12 @@ export function resolveLocalRef(document: OpenApiDocument, reference: string): u
         { reference, missingSegment: segment },
       );
     }
-    if (!(segment in current)) {
+    const exists = Array.isArray(current)
+      ? /^(?:0|[1-9]\d*)$/.test(segment)
+        && Number(segment) < current.length
+        && Object.prototype.hasOwnProperty.call(current, segment)
+      : Object.prototype.hasOwnProperty.call(current, segment);
+    if (!exists) {
       throw new ContractGuardError(
         "INVALID_REFERENCE",
         `Reference "${reference}" does not resolve to a value.`,

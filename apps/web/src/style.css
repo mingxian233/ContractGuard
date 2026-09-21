@@ -410,6 +410,55 @@ main { min-height: 100vh; margin-left: 248px; }
   .ai-report__footer strong { width: 100%; margin-left: 0; }
 }
 
+/* Interaction and resilience refinements. */
+.report-heading > div,
+.history-title,
+.ai-state-card > div,
+.inline-error > div { min-width: 0; }
+.report-heading h2,
+.history-title strong,
+.change-card__body > strong,
+.ai-report h3,
+.ai-report h4,
+.ai-report p,
+.rule-item h3,
+.rule-item p { overflow-wrap: anywhere; }
+.change-card__topline,
+.history-title,
+.rule-item > div { flex-wrap: wrap; }
+.export-popover { max-width: calc(100vw - 32px); }
+.empty-state .button { margin-top: 8px; }
+.history-table-wrap:focus-visible {
+  outline: 2px solid #5277b7;
+  outline-offset: 3px;
+}
+.inline-error {
+  margin-top: 18px;
+  padding: 14px 15px;
+  border: 1px solid #e7c3c7;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: #805d62;
+  background: #fff8f8;
+}
+.inline-error > div { flex: 1; }
+.inline-error strong { color: #9f3440; font-size: 13px; }
+.inline-error p { margin: 4px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.inline-error--drawer { margin-top: 19px; }
+
+@media (max-width: 600px) {
+  .inline-error { align-items: flex-start; flex-direction: column; gap: 11px; }
+  .inline-error .button { width: 100%; }
+  .history-counts { flex-wrap: wrap; }
+}
+
+@media (max-width: 420px) {
+  .github-link { display: none; }
+  .mobile-nav button { padding-inline: 7px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

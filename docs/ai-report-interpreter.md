@@ -280,6 +280,8 @@ curl --fail-with-body --silent --show-error \
 | `caveats` | 模型声明的限制与需人工复核内容 |
 | `usage` | 上游返回时提供的 token 用量；字段可能缺省 |
 
+为避免模型偶发冗长输出拖垮整份报告，服务端最多保留 8 项 `keyRisks`、8 个迁移步骤、8 条测试建议和 6 条 caveat；每个重点风险最多保留 20 个受影响消费者。所有字符串、关联 ID 和 DeepSeek 响应总大小也有上限，超出结构约束的内容会被拒绝或按既定列表上限裁剪。
+
 示意响应：
 
 ```json
@@ -364,6 +366,6 @@ DeepSeek 的 JSON Output 要求提示中明确要求 JSON，并可能出现空�
 
 ### 为什么提示 JSON 被截断或无效？
 
-DeepSeek 的 JSON Output 在达到输出 token 上限时可能只返回半段 JSON，也可能偶发返回空内容。ContractGuard 会识别明确的截断原因，并兼容完整 JSON 外层的单个 Markdown 围栏，但不会接受未经结构和 change ID 校验的内容。可将 `CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS` 保持为 `8192` 或更高、适当降低 `CONTRACTGUARD_AI_MAX_CHANGES`，重启服务后再试。
+DeepSeek 的 JSON Output 在达到输出 token 上限时可能只返回半段 JSON，也可能偶发返回空内容。ContractGuard 可以从单个 Markdown 围栏或前后附带少量说明的回复中提取完整 JSON 对象，但不会接受残缺 JSON、错误字段、未知 change ID 或其他未通过结构校验的内容。可将 `CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS` 保持为 `8192` 或更高、适当降低 `CONTRACTGUARD_AI_MAX_CHANGES`，重启服务后再试。
 
 更完整的 HTTP 字段与错误结构见 [REST API Reference](./api-reference.md)，架构边界见 [系统架构](./architecture.md)。

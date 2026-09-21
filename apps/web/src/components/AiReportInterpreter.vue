@@ -50,6 +50,7 @@ const tokenTotal = computed(() => {
 })
 
 function errorMessage(error: unknown): string {
+  if (error instanceof TypeError) return '无法连接分析服务，请确认服务已启动后重试。'
   return error instanceof Error ? error.message : '请求未完成，请稍后重试。'
 }
 

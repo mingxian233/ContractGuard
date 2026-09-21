@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
-import { analyzeCompatibility, ruleCatalog } from '@contractguard/core';
+import { analyzeCompatibility, ENGINE_VERSION, ruleCatalog } from '@contractguard/core';
 import { Command, InvalidArgumentError } from 'commander';
 import { formatResult, terminalSafe, type OutputFormat } from './formatters.js';
 
@@ -10,7 +10,7 @@ type FailOn = 'breaking' | 'potentially-breaking' | 'never';
 const program = new Command()
   .name('contractguard')
   .description('Detect backward-incompatible changes between two OpenAPI 3.x contracts.')
-  .version('1.0.0')
+  .version(ENGINE_VERSION)
   .showHelpAfterError();
 
 program.command('compare')

@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { dirname, join, resolve } from 'node:path';
 import type { AnalysisSummary, StoredAnalysis } from './types.js';
 
-const SAFE_ID = /^[0-9a-f-]{36}$/i;
+const SAFE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class AnalysisStore {
   private readonly directory: string;
@@ -21,8 +21,12 @@ export class AnalysisStore {
     const target = this.pathFor(analysis.id);
     const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(temporary, `${JSON.stringify(analysis, null, 2)}\n`, 'utf8');
-    await rename(temporary, target);
+    try {
+      await writeFile(temporary, `${JSON.stringify(analysis, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      await rename(temporary, target);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
   }
 
   async get(id: string): Promise<StoredAnalysis | null> {

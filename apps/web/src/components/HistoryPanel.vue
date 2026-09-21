@@ -5,6 +5,7 @@ import { formatDate } from '../utils'
 defineProps<{
   analyses: AnalysisRecord[]
   loading: boolean
+  error: string
 }>()
 
 const emit = defineEmits<{
@@ -15,30 +16,39 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <section class="history-view">
+  <section class="history-view" aria-labelledby="history-title">
     <div class="page-heading">
       <div>
-        <h1>分析历史</h1>
+        <h1 id="history-title">分析历史</h1>
         <p>保留每次契约比较的风险快照，便于复核与团队协作。</p>
       </div>
-      <button class="button button--quiet" type="button" :disabled="loading" @click="emit('refresh')">
+      <button class="button button--quiet" type="button" :disabled="loading" :aria-busy="loading" @click="emit('refresh')">
         {{ loading ? '刷新中…' : '刷新记录' }}
       </button>
+    </div>
+
+    <div v-if="error" class="inline-error" role="alert">
+      <div>
+        <strong>无法读取分析历史</strong>
+        <p>{{ error }}</p>
+      </div>
+      <button class="button button--quiet button--small" type="button" :disabled="loading" @click="emit('refresh')">重试</button>
     </div>
 
     <div v-if="loading && !analyses.length" class="loading-card" aria-live="polite">
       <span class="spinner"></span> 正在载入分析记录…
     </div>
 
-    <div v-else-if="analyses.length" class="history-table-wrap">
+    <div v-if="analyses.length" class="history-table-wrap" tabindex="0" aria-label="分析历史表格，可横向滚动" :aria-busy="loading">
       <table class="history-table">
+        <caption class="sr-only">已保存的 OpenAPI 兼容性分析记录</caption>
         <thead>
           <tr>
-            <th>规范对比</th>
-            <th>时间</th>
-            <th>评分</th>
-            <th>变更概览</th>
-            <th><span class="sr-only">操作</span></th>
+            <th scope="col">规范对比</th>
+            <th scope="col">时间</th>
+            <th scope="col">评分</th>
+            <th scope="col">变更概览</th>
+            <th scope="col"><span class="sr-only">操作</span></th>
           </tr>
         </thead>
         <tbody>
@@ -51,8 +61,8 @@ const emit = defineEmits<{
               </button>
               <code>{{ analysis.id }}</code>
             </td>
-            <td>{{ formatDate(analysis.createdAt) }}</td>
-            <td><span class="score-badge" :class="analysis.compatible ? 'pass' : 'fail'">{{ analysis.score }}</span></td>
+            <td><time :datetime="analysis.createdAt">{{ formatDate(analysis.createdAt) }}</time></td>
+            <td><span class="score-badge" :class="analysis.compatible ? 'pass' : 'fail'" :aria-label="`兼容性评分 ${analysis.score} 分`">{{ analysis.score }}</span></td>
             <td>
               <div class="history-counts">
                 <span class="danger">{{ analysis.summary.breaking }} 破坏</span>
@@ -69,7 +79,7 @@ const emit = defineEmits<{
       </table>
     </div>
 
-    <div v-else class="empty-state">
+    <div v-else-if="!loading && !error" class="empty-state">
       <span aria-hidden="true">◫</span>
       <h3>还没有分析记录</h3>
       <p>完成第一次 OpenAPI 对比后，结果会出现在这里。</p>

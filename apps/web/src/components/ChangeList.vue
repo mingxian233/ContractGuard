@@ -21,6 +21,7 @@ const severityOptions: { value: SeverityFilter; label: string; count: () => numb
 ]
 
 const visibleChanges = computed(() => filterChanges(props.analysis.changes, severity.value, query.value))
+const hasActiveFilters = computed(() => severity.value !== 'all' || Boolean(query.value.trim()))
 
 const labels: Record<ChangeRecord['severity'], string> = {
   breaking: '破坏性',
@@ -31,6 +32,11 @@ const labels: Record<ChangeRecord['severity'], string> = {
 
 function toggle(id: string): void {
   expanded.value = expanded.value === id ? null : id
+}
+
+function clearFilters(): void {
+  severity.value = 'all'
+  query.value = ''
 }
 </script>
 
@@ -52,6 +58,7 @@ function toggle(id: string): void {
         v-for="option in severityOptions"
         :key="option.value"
         type="button"
+        aria-controls="change-list"
         :aria-pressed="severity === option.value"
         :class="{ active: severity === option.value }"
         @click="severity = option.value"
@@ -60,54 +67,58 @@ function toggle(id: string): void {
       </button>
     </div>
 
-    <div v-if="visibleChanges.length" class="change-list">
-      <article
-        v-for="change in visibleChanges"
-        :key="change.id"
-        class="change-card"
-        :class="`change-card--${change.severity}`"
-      >
-        <button
-          class="change-card__summary"
-          type="button"
-          :aria-expanded="expanded === change.id"
-          @click="toggle(change.id)"
+    <div id="change-list">
+      <div v-if="visibleChanges.length" class="change-list">
+        <article
+          v-for="(change, index) in visibleChanges"
+          :key="change.id"
+          class="change-card"
+          :class="`change-card--${change.severity}`"
         >
-          <span class="severity-dot" aria-hidden="true"></span>
-          <span class="change-card__body">
-            <span class="change-card__topline">
-              <span class="severity-label">{{ labels[change.severity] }}</span>
-              <code>{{ change.ruleId }}</code>
-              <span>{{ change.category }}</span>
+          <button
+            class="change-card__summary"
+            type="button"
+            :aria-expanded="expanded === change.id"
+            :aria-controls="`change-details-${index}`"
+            @click="toggle(change.id)"
+          >
+            <span class="severity-dot" aria-hidden="true"></span>
+            <span class="change-card__body">
+              <span class="change-card__topline">
+                <span class="severity-label">{{ labels[change.severity] }}</span>
+                <code>{{ change.ruleId }}</code>
+                <span>{{ change.category }}</span>
+              </span>
+              <strong>{{ change.message }}</strong>
+              <code class="location">{{ change.location }}</code>
             </span>
-            <strong>{{ change.message }}</strong>
-            <code class="location">{{ change.location }}</code>
-          </span>
-          <span class="chevron" aria-hidden="true">⌄</span>
-        </button>
+            <span class="chevron" aria-hidden="true">⌄</span>
+          </button>
 
-        <div v-if="expanded === change.id" class="change-card__details">
-          <div class="diff-grid">
-            <div>
-              <span>变更前</span>
-              <pre>{{ prettyValue(change.before) }}</pre>
+          <div v-if="expanded === change.id" :id="`change-details-${index}`" class="change-card__details" role="region" :aria-label="`${change.message} 的变更详情`">
+            <div class="diff-grid">
+              <div>
+                <span>变更前</span>
+                <pre>{{ prettyValue(change.before) }}</pre>
+              </div>
+              <div>
+                <span>变更后</span>
+                <pre>{{ prettyValue(change.after) }}</pre>
+              </div>
             </div>
-            <div>
-              <span>变更后</span>
-              <pre>{{ prettyValue(change.after) }}</pre>
+            <div v-if="change.recommendation" class="recommendation">
+              <span aria-hidden="true">→</span>
+              <p><strong>迁移建议</strong>{{ change.recommendation }}</p>
             </div>
           </div>
-          <div v-if="change.recommendation" class="recommendation">
-            <span aria-hidden="true">→</span>
-            <p><strong>迁移建议</strong>{{ change.recommendation }}</p>
-          </div>
-        </div>
-      </article>
-    </div>
-    <div v-else class="empty-state empty-state--compact">
-      <span aria-hidden="true">⌕</span>
-      <h3>没有匹配的变更</h3>
-      <p>调整搜索词或严重度筛选条件。</p>
+        </article>
+      </div>
+      <div v-else class="empty-state empty-state--compact">
+        <span aria-hidden="true">⌕</span>
+        <h3>{{ analysis.changes.length ? '没有匹配的变更' : '未检测到契约变更' }}</h3>
+        <p>{{ analysis.changes.length ? '调整搜索词或严重度筛选条件。' : '两份规范在当前规则集下没有产生差异。' }}</p>
+        <button v-if="hasActiveFilters" class="button button--quiet button--small" type="button" @click="clearFilters">清除筛选</button>
+      </div>
     </div>
   </section>
 </template>

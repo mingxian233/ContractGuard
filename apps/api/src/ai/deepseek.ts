@@ -94,8 +94,8 @@ export function createDeepSeekAiService(options: DeepSeekAiServiceOptions = {}):
             + 'Increase CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS or reduce CONTRACTGUARD_AI_MAX_CHANGES, then retry.',
           );
         }
-        const generated = validateGeneratedReview(
-          parseGeneratedJson(completion.content),
+        const generated = parseAndValidateGeneratedReview(
+          completion.content,
           new Set(analysis.changes.map((change) => change.id)),
         );
         const usage = extractUsage(envelope);
@@ -245,12 +245,10 @@ function sanitizeSource(source: StoredAnalysis['source']['old']): Record<string,
 async function readJsonEnvelope(response: Response): Promise<Record<string, unknown>> {
   let text: string;
   try {
-    text = await response.text();
-  } catch {
+    text = await readLimitedResponseText(response, MAX_RESPONSE_BYTES);
+  } catch (error) {
+    if (error instanceof AiServiceError) throw error;
     throw new AiServiceError(502, 'AI_UPSTREAM_ERROR', 'The DeepSeek response could not be read.');
-  }
-  if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
-    throw invalidResponse('DeepSeek returned an oversized response.');
   }
   try {
     const parsed: unknown = JSON.parse(text);
@@ -258,6 +256,29 @@ async function readJsonEnvelope(response: Response): Promise<Record<string, unkn
     return parsed;
   } catch {
     throw invalidResponse('DeepSeek returned an invalid response envelope.');
+  }
+}
+
+async function readLimitedResponseText(response: Response, maximumBytes: number): Promise<string> {
+  if (response.body === null) return '';
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let byteLength = 0;
+  let text = '';
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      byteLength += chunk.value.byteLength;
+      if (byteLength > maximumBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw invalidResponse('DeepSeek returned an oversized response.');
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -278,15 +299,73 @@ function extractCompletion(envelope: Record<string, unknown>): { content: string
   return { content: message.content, ...(finishReason === undefined ? {} : { finishReason }) };
 }
 
-function parseGeneratedJson(content: string): unknown {
+function parseAndValidateGeneratedReview(content: string, validChangeIds: Set<string>): GeneratedReview {
   const normalized = content.trim().replace(/^\uFEFF/, '');
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(normalized);
-  const candidate = (fenced?.[1] ?? normalized).trim();
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    throw invalidResponse('DeepSeek did not return valid JSON.');
+  const exactCandidate = (fenced?.[1] ?? normalized).trim();
+  const candidates = new Set([exactCandidate, ...balancedJsonObjects(normalized)]);
+  const validReviews: GeneratedReview[] = [];
+  let validationError: AiServiceError | undefined;
+
+  for (const candidate of candidates) {
+    const parsed = tryParseJson(candidate);
+    if (parsed === undefined) continue;
+    try {
+      validReviews.push(validateGeneratedReview(parsed, validChangeIds));
+    } catch (error) {
+      if (!(error instanceof AiServiceError) || error.code !== 'AI_INVALID_RESPONSE') throw error;
+      validationError = error;
+    }
   }
+
+  if (validReviews.length === 1) return validReviews[0]!;
+  if (validReviews.length > 1) throw invalidResponse('DeepSeek returned multiple valid JSON review objects.');
+  if (validationError !== undefined) throw validationError;
+  throw invalidResponse('DeepSeek did not return valid JSON.');
+}
+
+function tryParseJson(value: string): unknown | undefined {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Extract complete JSON objects while ignoring braces that occur inside JSON strings. */
+function balancedJsonObjects(value: string): string[] {
+  const candidates: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let insideString = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (start < 0) {
+      if (character === '{') {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    if (insideString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') insideString = false;
+      continue;
+    }
+    if (character === '"') insideString = true;
+    else if (character === '{') depth += 1;
+    else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        candidates.push(value.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+  return candidates;
 }
 
 function validateGeneratedReview(value: unknown, validChangeIds: Set<string>): GeneratedReview {
@@ -302,7 +381,7 @@ function validateGeneratedReview(value: unknown, validChangeIds: Set<string>): G
     riskLevel: riskLevel as AiRiskLevel,
   };
 
-  const keyRisks = expectArray(root.keyRisks, 'keyRisks', 20).map((item, index) => {
+  const keyRisks = expectArray(root.keyRisks, 'keyRisks', 8).map((item, index) => {
     const risk = expectObject(item, `keyRisks[${index}]`);
     assertOnlyKeys(risk, ['changeId', 'title', 'explanation', 'affectedConsumers', 'remediation', 'priority'], `keyRisks[${index}]`);
     const changeId = expectChangeId(risk.changeId, `keyRisks[${index}].changeId`, validChangeIds);
@@ -317,7 +396,7 @@ function validateGeneratedReview(value: unknown, validChangeIds: Set<string>): G
     };
   });
 
-  const migrationPlan = expectArray(root.migrationPlan, 'migrationPlan', 12).map((item, index) => {
+  const migrationPlan = expectArray(root.migrationPlan, 'migrationPlan', 8).map((item, index) => {
     const step = expectObject(item, `migrationPlan[${index}]`);
     assertOnlyKeys(step, ['order', 'title', 'actions', 'relatedChangeIds'], `migrationPlan[${index}]`);
     return {
@@ -328,7 +407,7 @@ function validateGeneratedReview(value: unknown, validChangeIds: Set<string>): G
     };
   });
 
-  const testSuggestions = expectArray(root.testSuggestions, 'testSuggestions', 20).map((item, index) => {
+  const testSuggestions = expectArray(root.testSuggestions, 'testSuggestions', 8).map((item, index) => {
     const suggestion = expectObject(item, `testSuggestions[${index}]`);
     assertOnlyKeys(suggestion, ['title', 'details', 'relatedChangeIds'], `testSuggestions[${index}]`);
     return {
@@ -343,7 +422,7 @@ function validateGeneratedReview(value: unknown, validChangeIds: Set<string>): G
     keyRisks,
     migrationPlan,
     testSuggestions,
-    caveats: expectStringArray(root.caveats, 'caveats', 20, 500),
+    caveats: expectStringArray(root.caveats, 'caveats', 6, 500),
   };
 }
 
@@ -363,10 +442,8 @@ function expectObject(value: unknown, path: string): Record<string, unknown> {
 }
 
 function expectArray(value: unknown, path: string, maximumLength: number): unknown[] {
-  if (!Array.isArray(value) || value.length > maximumLength) {
-    throw invalidResponse(`${path} must be an array with at most ${maximumLength} items.`);
-  }
-  return value;
+  if (!Array.isArray(value)) throw invalidResponse(`${path} must be an array.`);
+  return value.slice(0, maximumLength);
 }
 
 function expectString(value: unknown, path: string, maximumLength: number): string {

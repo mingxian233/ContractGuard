@@ -1,6 +1,6 @@
 {
   "name": "@contractguard/core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Deterministic OpenAPI 3.0/3.1 backward-compatibility analysis engine.",
   "type": "module",

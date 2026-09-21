@@ -79,7 +79,7 @@ type Severity =
   "baselineName": "petstore-v1.yaml",
   "candidateName": "petstore-v2.yaml",
   "createdAt": "2026-09-16T10:00:00.000Z",
-  "engineVersion": "1.0.0",
+  "engineVersion": "1.0.1",
   "generatedAt": "2026-09-16T10:00:00.000Z",
   "source": {
     "old": {
@@ -163,7 +163,7 @@ interface AiReview {
 {
   "status": "ok",
   "service": "contractguard-api",
-  "version": "1.0.0"
+  "version": "1.0.1"
 }
 ```
 

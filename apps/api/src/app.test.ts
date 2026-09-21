@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import request from 'supertest';
+import { ENGINE_VERSION } from '@contractguard/core';
 import { createApp } from './app.js';
 
 const baseline = {
@@ -52,6 +53,7 @@ describe('ContractGuard API', () => {
     const app = createApp({ dataDirectory: directory, serveWeb: false });
     const health = await request(app).get('/api/health').expect(200);
     assert.equal(health.body.status, 'ok');
+    assert.equal(health.body.version, ENGINE_VERSION);
     const rules = await request(app).get('/api/rules').expect(200);
     assert.ok(rules.body.rules.length > 5);
   });
@@ -107,6 +109,17 @@ describe('ContractGuard API', () => {
     const app = createApp({ dataDirectory: directory, serveWeb: false });
     const response = await request(app).post('/api/analyses').send({ baseline: '', candidate }).expect(400);
     assert.equal(response.body.error.code, 'INVALID_REQUEST');
+    const unsafeName = await request(app)
+      .post('/api/analyses')
+      .send({ baseline, candidate, baselineName: 'baseline\n# injected heading' })
+      .expect(400);
+    assert.equal(unsafeName.body.error.code, 'INVALID_REQUEST');
+  });
+
+  it('rejects malformed analysis identifiers before accessing storage', async () => {
+    const app = createApp({ dataDirectory: directory, serveWeb: false });
+    const response = await request(app).get('/api/analyses/------------------------------------').expect(400);
+    assert.equal(response.body.error.code, 'INVALID_ANALYSIS_ID');
   });
 
   it('returns 503 when AI review is disabled for a saved analysis', async () => {
@@ -230,6 +243,61 @@ describe('ContractGuard API', () => {
     assert.deepEqual(response.body.caveats, minimalAiReview.caveats);
   });
 
+  it('recovers a valid review when DeepSeek surrounds the JSON with brief prose', async () => {
+    const proseFetch: typeof fetch = async () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'stop',
+        message: { content: `Here is the requested review:\n${JSON.stringify(minimalAiReview)}\nEnd of review.` },
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiFetch: proseFetch,
+      aiConfig: { enabled: true, apiKey: 'test-key' },
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const response = await request(app).post(`/api/analyses/${created.body.id as string}/ai-review`).send({}).expect(200);
+    assert.equal(response.body.overview.headline, minimalAiReview.overview.headline);
+  });
+
+  it('skips unrelated JSON in surrounding prose and selects the schema-valid review', async () => {
+    const proseFetch: typeof fetch = async () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'stop',
+        message: { content: `Metadata: {"source":"deepseek"}\n${JSON.stringify(minimalAiReview)}` },
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiFetch: proseFetch,
+      aiConfig: { enabled: true, apiKey: 'test-key' },
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const response = await request(app).post(`/api/analyses/${created.body.id as string}/ai-review`).send({}).expect(200);
+    assert.equal(response.body.overview.headline, minimalAiReview.overview.headline);
+  });
+
+  it('rejects an ambiguous response containing multiple schema-valid reviews', async () => {
+    const ambiguousFetch: typeof fetch = async () => new Response(JSON.stringify({
+      choices: [{ message: { content: `${JSON.stringify(minimalAiReview)}\n${JSON.stringify({
+        ...minimalAiReview,
+        overview: { ...minimalAiReview.overview, headline: 'Second review' },
+      })}` } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiFetch: ambiguousFetch,
+      aiConfig: { enabled: true, apiKey: 'test-key' },
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const response = await request(app).post(`/api/analyses/${created.body.id as string}/ai-review`).send({}).expect(502);
+    assert.equal(response.body.error.code, 'AI_INVALID_RESPONSE');
+    assert.match(response.body.error.message, /multiple valid JSON review objects/i);
+  });
+
   it('normalizes singleton strings returned for list-valued AI review fields', async () => {
     let expectedChangeId = '';
     const singletonFetch: typeof fetch = async () => new Response(JSON.stringify({
@@ -274,6 +342,39 @@ describe('ContractGuard API', () => {
     assert.deepEqual(response.body.migrationPlan[0].relatedChangeIds, [expectedChangeId]);
     assert.deepEqual(response.body.testSuggestions[0].relatedChangeIds, [expectedChangeId]);
     assert.deepEqual(response.body.caveats, ['未获得运行时流量数据。']);
+  });
+
+  it('safely truncates overlong AI-generated lists instead of failing the entire review', async () => {
+    let expectedChangeId = '';
+    const overlongFetch: typeof fetch = async () => {
+      const risk = {
+        changeId: expectedChangeId,
+        title: '接口删除',
+        explanation: '旧调用方会受到影响。',
+        affectedConsumers: Array.from({ length: 25 }, (_, index) => `consumer-${index}`),
+        remediation: '提供迁移窗口。',
+        priority: 'P0',
+      };
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          ...minimalAiReview,
+          keyRisks: Array.from({ length: 10 }, () => risk),
+          caveats: Array.from({ length: 10 }, (_, index) => `caveat-${index}`),
+        }) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiFetch: overlongFetch,
+      aiConfig: { enabled: true, apiKey: 'test-key' },
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    expectedChangeId = created.body.changes[0].id as string;
+    const response = await request(app).post(`/api/analyses/${created.body.id as string}/ai-review`).send({}).expect(200);
+    assert.equal(response.body.keyRisks.length, 8);
+    assert.equal(response.body.keyRisks[0].affectedConsumers.length, 20);
+    assert.equal(response.body.caveats.length, 6);
   });
 
   it('reports a truncated DeepSeek JSON response using finish_reason', async () => {
@@ -339,6 +440,20 @@ describe('ContractGuard API', () => {
     assert.equal(response.body.error.code, 'AI_UPSTREAM_ERROR');
     assert.doesNotMatch(JSON.stringify(response.body), new RegExp(secret));
     assert.doesNotMatch(JSON.stringify(response.body), /authorization failed/i);
+  });
+
+  it('rejects an oversized DeepSeek response before parsing it', async () => {
+    const oversizedFetch: typeof fetch = async () => new Response('x'.repeat(129 * 1024), { status: 200 });
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiFetch: oversizedFetch,
+      aiConfig: { enabled: true, apiKey: 'test-key' },
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const response = await request(app).post(`/api/analyses/${created.body.id as string}/ai-review`).send({}).expect(502);
+    assert.equal(response.body.error.code, 'AI_INVALID_RESPONSE');
+    assert.match(response.body.error.message, /oversized response/i);
   });
 
   it('returns 504 when the DeepSeek request exceeds the configured timeout', async () => {

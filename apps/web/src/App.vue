@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AiReportInterpreter from './components/AiReportInterpreter.vue'
 import ChangeList from './components/ChangeList.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
@@ -27,7 +27,9 @@ const baselineName = ref('baseline.yaml')
 const candidateName = ref('candidate.yaml')
 const activeAnalysis = ref<AnalysisRecord | null>(null)
 const history = ref<AnalysisRecord[]>([])
+const historyError = ref('')
 const rules = ref<RuleDefinition[]>([])
+const rulesError = ref('')
 const isAnalyzing = ref(false)
 const historyLoading = ref(false)
 const rulesLoading = ref(false)
@@ -35,19 +37,30 @@ const rulesOpen = ref(false)
 const apiOnline = ref<boolean | null>(null)
 const toast = ref<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
 const exportOpen = ref(false)
+const exportMenu = ref<HTMLElement | null>(null)
+const exportButton = ref<HTMLButtonElement | null>(null)
+let toastTimer: number | undefined
 
 const hasSpecs = computed(() => Boolean(baseline.value.trim() && candidate.value.trim()))
 
 function showToast(message: string, type: 'success' | 'error' | 'info' = 'info'): void {
+  if (toastTimer !== undefined) window.clearTimeout(toastTimer)
   toast.value = { message, type }
-  window.setTimeout(() => {
+  toastTimer = window.setTimeout(() => {
     if (toast.value?.message === message) toast.value = null
+    toastTimer = undefined
   }, 4200)
 }
 
 function friendlyError(error: unknown): string {
+  if (error instanceof TypeError) return '无法连接分析服务，请确认服务已启动后重试。'
   if (error instanceof Error) return error.message
   return '操作未完成，请检查 API 服务与输入内容。'
+}
+
+function updateServiceStatus(error: unknown): void {
+  if (error instanceof ApiError) apiOnline.value = true
+  else if (error instanceof TypeError) apiOnline.value = false
 }
 
 function loadExample(): void {
@@ -66,6 +79,7 @@ function clearWorkspace(): void {
   baselineName.value = 'baseline.yaml'
   candidateName.value = 'candidate.yaml'
   activeAnalysis.value = null
+  exportOpen.value = false
 }
 
 async function runAnalysis(): Promise<void> {
@@ -83,7 +97,7 @@ async function runAnalysis(): Promise<void> {
     void refreshHistory()
     requestAnimationFrame(() => document.querySelector('#analysis-results')?.scrollIntoView({ behavior: 'smooth' }))
   } catch (error) {
-    apiOnline.value = error instanceof ApiError
+    updateServiceStatus(error)
     showToast(friendlyError(error), 'error')
   } finally {
     isAnalyzing.value = false
@@ -92,11 +106,14 @@ async function runAnalysis(): Promise<void> {
 
 async function refreshHistory(): Promise<void> {
   historyLoading.value = true
+  historyError.value = ''
   try {
     history.value = await listAnalyses()
     apiOnline.value = true
   } catch (error) {
-    showToast(friendlyError(error), 'error')
+    historyError.value = friendlyError(error)
+    updateServiceStatus(error)
+    if (view.value !== 'history') showToast(historyError.value, 'error')
   } finally {
     historyLoading.value = false
   }
@@ -105,8 +122,10 @@ async function refreshHistory(): Promise<void> {
 async function openHistory(analysis: AnalysisRecord): Promise<void> {
   try {
     activeAnalysis.value = await getAnalysis(analysis.id)
+    apiOnline.value = true
     view.value = 'analyze'
   } catch (error) {
+    updateServiceStatus(error)
     showToast(friendlyError(error), 'error')
   }
 }
@@ -115,25 +134,34 @@ async function removeHistory(analysis: AnalysisRecord): Promise<void> {
   if (!window.confirm(`确认删除分析记录 ${analysis.id}？该操作无法撤销。`)) return
   try {
     await deleteAnalysis(analysis.id)
+    apiOnline.value = true
     history.value = history.value.filter((item) => item.id !== analysis.id)
     if (activeAnalysis.value?.id === analysis.id) activeAnalysis.value = null
     showToast('分析记录已删除。', 'success')
   } catch (error) {
+    updateServiceStatus(error)
     showToast(friendlyError(error), 'error')
   }
 }
 
-async function openRules(): Promise<void> {
-  rulesOpen.value = true
-  if (rules.value.length) return
+async function loadRules(): Promise<void> {
+  if (rulesLoading.value) return
   rulesLoading.value = true
+  rulesError.value = ''
   try {
     rules.value = await listRules()
+    apiOnline.value = true
   } catch (error) {
-    showToast(friendlyError(error), 'error')
+    rulesError.value = friendlyError(error)
+    updateServiceStatus(error)
   } finally {
     rulesLoading.value = false
   }
+}
+
+function openRules(): void {
+  rulesOpen.value = true
+  if (!rules.value.length) void loadRules()
 }
 
 async function exportReport(format: ExportFormat): Promise<void> {
@@ -141,20 +169,45 @@ async function exportReport(format: ExportFormat): Promise<void> {
   exportOpen.value = false
   try {
     await downloadReport(activeAnalysis.value, format)
+    apiOnline.value = true
     showToast(`已生成 ${format.toUpperCase()} 报告。`, 'success')
   } catch (error) {
+    updateServiceStatus(error)
     showToast(friendlyError(error), 'error')
   }
 }
 
 function switchView(next: ViewName): void {
   view.value = next
+  exportOpen.value = false
   if (next === 'history') void refreshHistory()
 }
 
-onMounted(async () => {
-  apiOnline.value = await checkHealth()
-  if (apiOnline.value) void refreshHistory()
+function onDocumentPointerDown(event: PointerEvent): void {
+  if (exportOpen.value && event.target instanceof Node && !exportMenu.value?.contains(event.target)) {
+    exportOpen.value = false
+  }
+}
+
+function onDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !exportOpen.value) return
+  exportOpen.value = false
+  exportButton.value?.focus()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown)
+  document.addEventListener('keydown', onDocumentKeydown)
+  void (async () => {
+    apiOnline.value = await checkHealth()
+    if (apiOnline.value) void refreshHistory()
+  })()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
+  document.removeEventListener('keydown', onDocumentKeydown)
+  if (toastTimer !== undefined) window.clearTimeout(toastTimer)
 })
 </script>
 
@@ -167,10 +220,10 @@ onMounted(async () => {
       </a>
 
       <nav aria-label="主导航">
-        <button :class="{ active: view === 'analyze' }" type="button" @click="switchView('analyze')">
+        <button :class="{ active: view === 'analyze' }" type="button" :aria-current="view === 'analyze' ? 'page' : undefined" @click="switchView('analyze')">
           新建分析
         </button>
-        <button :class="{ active: view === 'history' }" type="button" @click="switchView('history')">
+        <button :class="{ active: view === 'history' }" type="button" :aria-current="view === 'history' ? 'page' : undefined" @click="switchView('history')">
           分析历史
           <b v-if="history.length">{{ history.length }}</b>
         </button>
@@ -186,7 +239,7 @@ onMounted(async () => {
           <small>OpenAPI 3.0 / 3.1</small>
         </div>
       </div>
-      <p class="version">规则引擎 v1.0</p>
+      <p class="version">规则引擎 v1.0.1</p>
     </aside>
 
     <main>
@@ -217,7 +270,7 @@ onMounted(async () => {
             </div>
           </section>
 
-          <section class="workspace" aria-labelledby="workspace-title">
+          <section class="workspace" aria-labelledby="workspace-title" :aria-busy="isAnalyzing">
             <div class="section-heading">
               <div>
                 <h2 id="workspace-title">输入规范</h2>
@@ -260,11 +313,11 @@ onMounted(async () => {
                 <p class="eyebrow">分析报告 · {{ formatDate(activeAnalysis.createdAt) }}</p>
                 <h2>{{ activeAnalysis.baselineName }} <span>→</span> {{ activeAnalysis.candidateName }}</h2>
               </div>
-              <div class="export-menu">
-                <button class="button button--quiet" type="button" :aria-expanded="exportOpen" @click="exportOpen = !exportOpen">
+              <div ref="exportMenu" class="export-menu">
+                <button ref="exportButton" class="button button--quiet" type="button" aria-controls="export-options" :aria-expanded="exportOpen" @click="exportOpen = !exportOpen">
                   导出报告 <span aria-hidden="true">⌄</span>
                 </button>
-                <div v-if="exportOpen" class="export-popover">
+                <div v-if="exportOpen" id="export-options" class="export-popover" aria-label="选择报告格式">
                   <button type="button" @click="exportReport('markdown')">Markdown <small>便于评审</small></button>
                   <button type="button" @click="exportReport('html')">HTML <small>独立分享</small></button>
                   <button type="button" @click="exportReport('json')">JSON <small>CI 集成</small></button>
@@ -281,6 +334,7 @@ onMounted(async () => {
           v-else
           :analyses="history"
           :loading="historyLoading"
+          :error="historyError"
           @open="openHistory"
           @remove="removeHistory"
           @refresh="refreshHistory"
@@ -288,10 +342,17 @@ onMounted(async () => {
       </div>
     </main>
 
-    <RuleDrawer :open="rulesOpen" :rules="rules" :loading="rulesLoading" @close="rulesOpen = false" />
+    <RuleDrawer
+      :open="rulesOpen"
+      :rules="rules"
+      :loading="rulesLoading"
+      :error="rulesError"
+      @close="rulesOpen = false"
+      @retry="loadRules"
+    />
 
     <Transition name="toast">
-      <div v-if="toast" class="toast" :class="`toast--${toast.type}`" :role="toast.type === 'error' ? 'alert' : 'status'" aria-live="polite">
+      <div v-if="toast" class="toast" :class="`toast--${toast.type}`" :role="toast.type === 'error' ? 'alert' : 'status'" :aria-live="toast.type === 'error' ? 'assertive' : 'polite'">
         <span>{{ toast.type === 'success' ? '✓' : toast.type === 'error' ? '!' : 'i' }}</span>
         {{ toast.message }}
         <button type="button" aria-label="关闭通知" @click="toast = null">×</button>

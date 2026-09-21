@@ -26,8 +26,13 @@ describe("parseOpenApi", () => {
     }
   });
 
-  it.each(["3.2.0", "2.0.0", "4.0.0"])("rejects unsupported OpenAPI %s", (version) => {
+  it.each(["3.2.0", "2.0.0", "4.0.0", "3.1", "3.1.invalid", "3.1.0.1"])("rejects unsupported OpenAPI %s", (version) => {
     expect(() => parseOpenApi({ openapi: version, paths: {} })).toThrow(/supports OpenAPI 3\.0\.x and 3\.1\.x/);
+  });
+
+  it("accepts supported semantic OpenAPI version strings", () => {
+    expect(parseOpenApi({ openapi: "3.0.4", paths: {} }).document.openapi).toBe("3.0.4");
+    expect(parseOpenApi({ openapi: "3.1.2-preview.1", paths: {} }).document.openapi).toBe("3.1.2-preview.1");
   });
 
   it("reports parse errors and invalid document shape", () => {
@@ -74,5 +79,17 @@ describe("local references", () => {
       expect(error).toBeInstanceOf(ContractGuardError);
       expect((error as ContractGuardError).code).toBe("INVALID_REFERENCE");
     }
+  });
+
+  it("never resolves inherited properties or non-index array properties", () => {
+    const withArray = parseOpenApi({
+      openapi: "3.1.0",
+      paths: {},
+      components: { examples: [{ value: "first" }] },
+    }).document;
+
+    expect(() => resolveLocalRef(withArray, "#/constructor")).toThrow(/does not resolve/);
+    expect(() => resolveLocalRef(withArray, "#/components/examples/length")).toThrow(/does not resolve/);
+    expect(resolveLocalRef(withArray, "#/components/examples/0")).toEqual({ value: "first" });
   });
 });

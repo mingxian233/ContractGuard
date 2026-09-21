@@ -9,7 +9,7 @@ import type {
 } from "./types.js";
 import { parseOpenApi, resolveNode } from "./parser.js";
 
-export const ENGINE_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.0.1";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
 type Direction = "request" | "response";
@@ -714,7 +714,10 @@ function isSuccessStatus(status: string): boolean {
 function compareResponses(ctx: CompareContext, oldOperation: Node, newOperation: Node, base: string): void {
   const oldResponses = responsesNode(ctx.oldDocument, oldOperation);
   const newResponses = responsesNode(ctx.newDocument, newOperation);
-  for (const status of [...new Set([...Object.keys(oldResponses), ...Object.keys(newResponses)])].sort()) {
+  const responseKeys = [...new Set([...Object.keys(oldResponses), ...Object.keys(newResponses)])]
+    .filter((key) => !/^x-/i.test(key))
+    .sort();
+  for (const status of responseKeys) {
     const location = `${base}.responses[${JSON.stringify(status)}]`;
     if (own(oldResponses, status) && !own(newResponses, status)) {
       add(ctx, change("RESPONSE_STATUS_REMOVED", isSuccessStatus(status) ? "breaking" : "potentially-breaking", "response", location, `Response status ${status} was removed.`, {
@@ -971,7 +974,10 @@ function compareOperation(
 function comparePaths(ctx: CompareContext): void {
   const oldPaths = asRecord(ctx.oldDocument, ctx.oldDocument.paths) ?? {};
   const newPaths = asRecord(ctx.newDocument, ctx.newDocument.paths) ?? {};
-  for (const path of [...new Set([...Object.keys(oldPaths), ...Object.keys(newPaths)])].sort()) {
+  const pathNames = [...new Set([...Object.keys(oldPaths), ...Object.keys(newPaths)])]
+    .filter((path) => path.startsWith("/"))
+    .sort();
+  for (const path of pathNames) {
     const location = `paths[${JSON.stringify(path)}]`;
     if (own(oldPaths, path) && !own(newPaths, path)) {
       add(ctx, change("PATH_REMOVED", "breaking", "path", location, `Path ${path} was removed.`, {

@@ -1,6 +1,6 @@
 {
   "name": "contractguard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "A local-first OpenAPI backward-compatibility analysis platform.",
   "license": "MIT",
@@ -12,9 +12,12 @@
     "pretest": "pnpm --filter @contractguard/core build",
     "test": "pnpm -r --if-present test",
     "test:coverage": "pnpm -r --if-present test:coverage",
+    "docs:check": "node scripts/check-doc-links.mjs",
+    "config:check": "node packages/core/scripts/check-config.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
     "pretypecheck": "pnpm --filter @contractguard/core build",
     "typecheck": "pnpm -r --if-present typecheck",
-    "check": "pnpm build && pnpm typecheck && pnpm test",
+    "check": "pnpm build && pnpm typecheck && pnpm test && pnpm docs:check && pnpm config:check && pnpm smoke",
     "contractguard": "node apps/cli/dist/index.js",
     "demo": "node apps/cli/dist/index.js compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaking.yaml --fail-on never",
     "clean": "pnpm -r --if-present clean"

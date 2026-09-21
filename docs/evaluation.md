@@ -175,7 +175,7 @@ breaking 候选至少应检出：
 
 ### 8.1 当前 smoke test 记录
 
-2026-09-16 使用引擎 `1.0.0`、Node `v24.19.0` 和 pnpm `11.19.0`，从项目根目录构建核心包后直接调用 `analyzeCompatibility`，得到：
+2026-09-21 使用引擎 `1.0.1`、Node `v24.21.0` 和 pnpm `11.19.0`，从项目根目录运行当前 manifest 冒烟测试，得到：
 
 | Candidate | Score | Compatible | Breaking | Potential | Non-breaking | Info | Total |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |

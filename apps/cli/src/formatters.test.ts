@@ -4,7 +4,7 @@ import type { AnalysisResult } from '@contractguard/core';
 import { formatResult } from './formatters.js';
 
 const result: AnalysisResult = {
-  engineVersion: '1.0.0',
+  engineVersion: '1.0.1',
   generatedAt: '2026-09-16T00:00:00.000Z',
   source: { old: { title: 'API', version: '1', openapi: '3.1.0' }, new: { title: 'API', version: '2', openapi: '3.1.0' } },
   score: 75,

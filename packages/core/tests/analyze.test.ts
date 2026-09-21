@@ -48,7 +48,7 @@ describe("analyzeCompatibility", () => {
     const spec = document(operation());
     const result = analyzeCompatibility(spec, structuredClone(spec), { generatedAt: fixedTime });
     expect(result).toMatchObject({
-      engineVersion: "1.0.0",
+      engineVersion: "1.0.1",
       generatedAt: fixedTime,
       score: 100,
       compatible: true,
@@ -72,6 +72,29 @@ describe("analyzeCompatibility", () => {
     const oldWithPost = document(operation(), { paths: { "/pets": { get: operation(), post: operation() } } });
     const operationResult = analyzeCompatibility(oldWithPost, document(operation()), { generatedAt: fixedTime });
     expect(rules(operationResult)).toContain("OPERATION_REMOVED");
+  });
+
+  it("ignores OpenAPI specification extensions in path and response maps", () => {
+    const oldOperation = operation({
+      responses: {
+        "200": { description: "OK" },
+        "x-provider-metadata": { mode: "old" },
+      },
+    });
+    const newOperation = operation({
+      responses: {
+        "200": { description: "OK" },
+        "x-provider-metadata": { mode: "new" },
+      },
+    });
+    const oldSpec = document(oldOperation, {
+      paths: { "/pets": { get: oldOperation }, "x-routing-metadata": { owner: "old" } },
+    });
+    const newSpec = document(newOperation, {
+      paths: { "/pets": { get: newOperation }, "x-routing-metadata": { owner: "new" } },
+    });
+
+    expect(analyzeCompatibility(oldSpec, newSpec, { generatedAt: fixedTime }).changes).toHaveLength(0);
   });
 
   it("applies request direction to parameters, types, enums and constraints", () => {

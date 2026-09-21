@@ -17,6 +17,7 @@ const emit = defineEmits<{
 
 const input = ref<HTMLInputElement | null>(null)
 const isDragging = ref(false)
+let dragDepth = 0
 
 async function loadFile(file?: File): Promise<void> {
   if (!file) return
@@ -40,8 +41,19 @@ async function onInput(event: Event): Promise<void> {
 }
 
 function onDrop(event: DragEvent): void {
+  dragDepth = 0
   isDragging.value = false
   void loadFile(event.dataTransfer?.files[0])
+}
+
+function onDragEnter(): void {
+  dragDepth += 1
+  isDragging.value = true
+}
+
+function onDragLeave(): void {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) isDragging.value = false
 }
 </script>
 
@@ -49,15 +61,16 @@ function onDrop(event: DragEvent): void {
   <section
     class="spec-panel"
     :class="[`spec-panel--${accent}`, { 'is-dragging': isDragging }]"
-    @dragenter.prevent="isDragging = true"
+    :aria-labelledby="`spec-${accent}-title`"
+    @dragenter.prevent="onDragEnter"
     @dragover.prevent="isDragging = true"
-    @dragleave.prevent="isDragging = false"
+    @dragleave.prevent="onDragLeave"
     @drop.prevent="onDrop"
   >
     <header class="spec-panel__header">
       <div>
         <p class="eyebrow">{{ eyebrow }}</p>
-        <h3>{{ title }}</h3>
+        <h3 :id="`spec-${accent}-title`">{{ title }}</h3>
       </div>
       <span class="format-pill">YAML / JSON</span>
     </header>
@@ -85,6 +98,9 @@ function onDrop(event: DragEvent): void {
       <textarea
         class="spec-editor"
         spellcheck="false"
+        autocapitalize="off"
+        autocomplete="off"
+        :aria-describedby="`spec-${accent}-count`"
         :value="props.modelValue"
         :placeholder="`在此粘贴${title}，或拖拽文件到面板`"
         @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
@@ -92,7 +108,7 @@ function onDrop(event: DragEvent): void {
     </label>
     <footer class="spec-panel__footer">
       <span>可拖拽规范文件到此处</span>
-      <span>{{ modelValue.length.toLocaleString() }} 字符</span>
+      <span :id="`spec-${accent}-count`">{{ modelValue.length.toLocaleString() }} 字符</span>
     </footer>
   </section>
 </template>
