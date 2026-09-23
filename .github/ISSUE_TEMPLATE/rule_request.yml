@@ -1,0 +1,40 @@
+name: Rule request
+description: Propose a new OpenAPI compatibility rule with concrete consumer impact.
+title: "[Rule request]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    attributes:
+      label: Compatibility scenario
+      description: What changed, and which existing request or response behavior is affected?
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Direction
+      options:
+        - Request / accepted input
+        - Response / produced output
+        - Operation or path
+        - Security
+        - Metadata or code generation
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Minimal baseline and candidate
+      description: Provide sanitized OpenAPI snippets or links to a public specification.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed result
+      description: Suggest a severity, evidence location, and actionable remediation.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: References
+      description: Link relevant OpenAPI or JSON Schema sections and known client behavior.

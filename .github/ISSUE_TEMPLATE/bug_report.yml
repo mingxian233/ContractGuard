@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible problem in the CLI, API, Web UI, or report export.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve ContractGuard. Remove credentials, internal hostnames, customer data, and other sensitive content before submitting.
+  - type: checkboxes
+    attributes:
+      label: Safety and scope
+      options:
+        - label: I removed sensitive or proprietary information from the example and logs.
+          required: true
+        - label: This is not a security vulnerability; security reports follow SECURITY.md.
+          required: true
+  - type: dropdown
+    attributes:
+      label: Affected surface
+      options:
+        - Core rule engine
+        - CLI
+        - REST API
+        - Web UI
+        - DeepSeek report interpreter
+        - Docker or startup
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: ContractGuard version or commit
+      placeholder: v1.0.1 or a commit SHA
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction steps
+      description: Include the smallest safe input and exact command or UI steps.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Environment and logs
+      description: Include OS, Node.js and pnpm versions. Do not paste API keys or private specifications.

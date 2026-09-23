@@ -1,0 +1,61 @@
+name: Compatibility result mismatch
+description: Report a false positive, missed breaking change, or incorrect severity.
+title: "[Rule]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The best report contains a minimal, sanitized baseline/candidate pair and explains which existing consumer behavior should remain valid or become invalid.
+  - type: checkboxes
+    attributes:
+      label: Data safety
+      options:
+        - label: Both specifications are minimized and contain no credentials, private hosts, or customer data.
+          required: true
+  - type: dropdown
+    attributes:
+      label: Mismatch type
+      options:
+        - False positive
+        - False negative / missed change
+        - Incorrect severity
+        - Incorrect request/response direction
+        - Unclear evidence or remediation
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Rule ID
+      description: Leave blank only when no finding was emitted.
+      placeholder: SCHEMA_PROPERTY_REMOVED
+  - type: dropdown
+    attributes:
+      label: Contract direction
+      options:
+        - Request / accepted input
+        - Response / produced output
+        - Operation or path
+        - Security
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Minimal baseline specification
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Minimal candidate specification
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Actual and expected result
+      description: Include the emitted severity/message and explain the consumer behavior you expected ContractGuard to preserve or reject.
+    validations:
+      required: true
