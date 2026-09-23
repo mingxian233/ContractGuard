@@ -6,6 +6,10 @@ const projectRoot = resolve(import.meta.dirname, '../../..');
 
 const yamlChecks = [
   ['.github/workflows/ci.yml', (value) => isObject(value.jobs) && isObject(value.jobs.verify)],
+  ['.github/ISSUE_TEMPLATE/bug_report.yml', isIssueForm],
+  ['.github/ISSUE_TEMPLATE/false_positive_or_negative.yml', isIssueForm],
+  ['.github/ISSUE_TEMPLATE/rule_request.yml', isIssueForm],
+  ['.github/ISSUE_TEMPLATE/config.yml', (value) => Array.isArray(value.contact_links)],
   ['docker-compose.yml', (value) => isObject(value.services) && isObject(value.services.contractguard)],
   ['examples/github-actions-contractguard.yml', (value) => isObject(value.jobs) && isObject(value.jobs.compatibility)],
 ];
@@ -42,4 +46,11 @@ async function read(relativePath) {
 
 function isObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isIssueForm(value) {
+  return typeof value.name === 'string'
+    && typeof value.description === 'string'
+    && Array.isArray(value.body)
+    && value.body.length > 0;
 }
