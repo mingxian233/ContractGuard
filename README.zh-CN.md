@@ -1,4 +1,4 @@
-# ContractGuard — OpenAPI 破坏性变更检测器
+# ContractGuard：OpenAPI 兼容性检查工具
 
 [English](README.md) · 简体中文
 
@@ -7,19 +7,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-2f6f61.svg)](LICENSE)
 [![Node.js >= 22.13](https://img.shields.io/badge/Node.js-%3E%3D22.13-3c873a.svg)](package.json)
 
-![ContractGuard——可解释的 OpenAPI 兼容性检查](docs/assets/contractguard-hero.svg)
+![ContractGuard：在 API 变更影响调用方之前发现兼容性风险](docs/assets/contractguard-hero.zh-CN.svg)
 
-**在新契约进入生产环境之前，找出旧客户端可能失效的位置。** ContractGuard 是一个本地优先、结果可解释、可接入 CI 的 OpenAPI 向后兼容性分析平台。
+**接口文档能通过校验，不代表现有客户端还能正常工作。**
 
-ContractGuard 比较一份已经发布的 OpenAPI 契约（baseline）与一份待发布契约（candidate），判断新版本是否可能破坏现有调用方。它不仅展示“改了什么”，还会说明风险等级、触发规则、准确位置、前后证据以及建议的迁移方式。
+ContractGuard 会对比已经发布的基线规范（baseline）与待发布的候选规范（candidate），找出删除接口、新增必填参数、收紧请求约束、删除响应字段等可能破坏兼容性的变化。每条结果都有风险等级、稳定的规则编号和文档中的具体位置，并在适用时附带变更前后值与处理建议，既方便人工评审，也能直接用作 CI 合并门禁。
 
-兼容性结论由确定性规则引擎产生；可选的多 LLM 解释器可以使用服务端配置的 DeepSeek、OpenAI、Gemini 或 Ollama 档案，把既有结果整理成风险摘要、迁移计划和测试建议，但不参与评分与发布门禁。
+兼容性判断完全由可重复执行的规则引擎给出。可选的 AI 解读功能通过 OpenAI-compatible Chat Completions 接口支持 DeepSeek、OpenAI、Gemini、Ollama 等模型配置，用来整理风险摘要、迁移步骤和测试建议；AI 不会修改检测结果、兼容性得分或 CI 退出码。
 
-当前版本面向 OpenAPI 3.0/3.1。语法定义请以 [OpenAPI 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)、[OpenAPI 3.1.2](https://spec.openapis.org/oas/v3.1.2.html)及[官方版本索引](https://spec.openapis.org/oas/)为准。
+当前版本面向 OpenAPI 3.0 和 3.1。规范语法请以 [OpenAPI 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)、[OpenAPI 3.1.2](https://spec.openapis.org/oas/v3.1.2.html)和[官方版本索引](https://spec.openapis.org/oas/)为准。
 
-**[查看真实报告](examples/reports/petstore-breaking.md) · [本地运行](#五分钟运行) · [接入 CI](#使用-cli-与-ci) · [理解规则模型](docs/compatibility-rules.md)**
+**[查看示例报告](examples/reports/petstore-breaking.md) · [五分钟跑起来](#五分钟跑起来) · [接入 CLI 与 CI](#接入-cli-与-ci) · [了解判定规则](docs/compatibility-rules.md)**
 
-当前版本由仓库自动化测试和端到端 fixture 套件验证；可复现记录见[验证文档](docs/verification.md)。Fixture 覆盖不等同于真实项目准确率。
+## 它解决什么问题
+
+API 升级最棘手的情况，往往不是规范文件写错了，而是两份文件都合法，新版本却悄悄破坏了已经上线的调用方。例如：
+
+- 把可选查询参数改成必填后，旧客户端开始收到 `400`；
+- 删除响应字段后，仍在读取该字段的前端或 SDK 出现异常；
+- 收窄请求枚举后，过去合法的输入不再被接受；
+- 扩大响应枚举后，使用穷举分支的客户端遇到未知值；
+- 修改成功状态码或新增鉴权要求后，原有调用流程无法继续。
+
+规范校验器回答“这份文档是否合法”，普通文本 diff 回答“哪些行发生了变化”。ContractGuard 关注的是发布前真正需要回答的问题：**哪些现有调用方可能受到影响，原因是什么，团队应该先改哪里、测哪里？**
 
 ## 先看结果
 
@@ -34,52 +44,40 @@ ContractGuard: petstore-v1.yaml -> petstore-v2-breaking.yaml
 Score 0/100 | BREAKING CHANGES | breaking 22 | potential 8 | safe 1 | info 1
 ```
 
-每条 finding 都包含稳定规则 ID、风险等级、精确 OpenAPI 位置、前后证据和修复建议。你可以在 Web 工作台中评审，也可以导出 JSON/Markdown/HTML，或用退出码 `2` 阻止不兼容的 Pull Request。
+每个风险项都有规则编号、严重程度和 OpenAPI 位置，并在适用时提供变更证据与修复建议。你可以在 Web 工作台中逐项查看，也可以导出 JSON、Markdown 或 HTML；放进 CI 后，还能用退出码 `2` 阻止不兼容的 Pull Request 合并。
 
-## 为什么需要它
+## 适合放在哪些流程里
 
-两份 OpenAPI 文档都可以通过语法校验，升级仍可能破坏旧客户端。例如：
-
-- 把可选查询参数改成必填，旧版 App 随即收到 `400`；
-- 删除响应字段，仍在读取该字段的前端或 SDK 出现异常；
-- 收窄请求枚举，使过去合法的输入不再被接受；
-- 扩大响应枚举，使使用穷举分支的客户端遇到未知值；
-- 修改成功状态码或新增鉴权要求，改变既有调用流程。
-
-规范校验器回答“文档是否合法”，文本 diff 回答“哪些行发生变化”。ContractGuard 回答的是发布前更直接的问题：**旧客户端可能在哪里失效，为什么，以及团队应优先迁移和验证什么？**
-
-## 适合哪些场景
-
-| 场景 | 用法 |
+| 场景 | ContractGuard 能做什么 |
 | --- | --- |
-| Pull request 门禁 | 在 CI 中比较已发布契约与本次候选契约，遇到高风险变更时以退出码 `2` 阻止合并 |
-| API 设计评审 | 在实现之前通过 Web 工作台查看风险位置、证据与修复建议 |
-| SDK/客户端迁移 | 导出 Markdown 或 HTML 报告，并用可选 AI 解读生成分阶段迁移与回归测试清单 |
-| 版本审计与交接 | 将 JSON 报告留给自动化流程，将分析历史保存在本地文件中供团队复核 |
+| Pull Request 门禁 | 在 CI 中比较线上契约与候选契约，风险达到阈值时阻止合并 |
+| API 设计评审 | 在编码之前确认接口改动会影响哪些客户端，并查看证据和修改建议 |
+| SDK 与客户端迁移 | 导出可分享的报告，配合可选 AI 解读整理迁移顺序和回归测试清单 |
+| 版本审计与交接 | 保存带输入指纹和规则策略指纹的结果，方便复核分析依据 |
 
-ContractGuard 是静态契约分析工具，不是运行时监控、API 安全扫描器或生产流量验证器。
+ContractGuard 是静态契约分析工具，不是运行时监控、API 安全扫描器，也不能代替真实流量回放和消费者契约测试。
 
-## 核心能力
+## 主要能力
 
 | 能力 | 当前实现 |
 | --- | --- |
-| 确定性规则引擎 | 检查路径、操作、参数、请求体、响应、媒体类型、Schema、鉴权与部分元数据变化 |
-| 方向感知分析 | 分别判断请求输入与响应输出，避免把同一 Schema 变化机械地归为相同风险 |
-| 可解释结果 | 输出稳定规则 ID、严重等级、契约位置、前后证据和修复建议 |
-| Web 工作台 | 导入、拖拽或粘贴两份 YAML/JSON 规范，筛选结果、查看历史、浏览规则并导出报告 |
-| CLI / CI 门禁 | 支持 `table`、`json`、`markdown`、`html` 输出和可配置失败阈值 |
-| REST API | 创建、读取和删除分析，读取规则目录，导出 JSON/Markdown/HTML 报告 |
-| 本地持久化 | 分析记录以 JSON 文件保存在本机，无需数据库 |
-| Policy as Code | 通过严格校验的 JSON 启停或重分类已知规则，并配置评分权重 |
-| 可复现审计信息 | 为 baseline、candidate 与规范化规则策略记录 SHA-256 指纹 |
-| 可选多 LLM 解读 | 从已启用的 DeepSeek、OpenAI、Gemini 或 Ollama 档案中选择，并对经过裁剪的 finding 生成结构化解读 |
+| 确定性规则引擎 | 检查路径、操作、参数、请求体、响应、媒体类型、Schema、鉴权及部分元数据变化 |
+| 按数据流方向判断 | 区分“客户端发送的请求”和“服务端返回的响应”，避免把同一种 Schema 改动一概而论 |
+| 可解释结果 | 输出稳定规则编号、风险等级和契约位置，并在适用时附带变更前后值与修复建议 |
+| Web 工作台 | 导入、拖入或粘贴两份 YAML/JSON 规范，筛选结果、查看历史并导出报告 |
+| CLI 与 CI 门禁 | 支持 `table`、`json`、`markdown`、`html` 输出及可配置的失败阈值 |
+| REST API | 创建、读取和删除分析，查询规则目录，导出多种格式的报告 |
+| 本地保存 | 将分析历史保存为本机 JSON 文件，无需额外部署数据库 |
+| 规则策略（Policy as Code） | 通过受校验的 JSON 启停或调整规则等级，并自定义评分权重 |
+| 可核验的审计信息 | 记录基线规范、候选规范和实际规则策略的 SHA-256 指纹 |
+| 可选多模型解读 | 从服务端允许的模型配置中选择，把受限的风险摘要整理成迁移和测试建议 |
 
-## 五分钟运行
+## 五分钟跑起来
 
 ### 1. 准备环境
 
 - Node.js 22.13 或更高版本；
-- pnpm 11.19.0（仓库已通过 `packageManager` 与锁文件固定版本）。
+- pnpm 11.19.0，版本已经通过仓库的 `packageManager` 字段和锁文件固定。
 
 Node.js 22 通常可以通过 Corepack 启用 pnpm：
 
@@ -88,7 +86,7 @@ corepack enable
 corepack prepare pnpm@11.19.0 --activate
 ```
 
-如果系统没有 Corepack：
+如果系统没有 Corepack，也可以使用 npm：
 
 ```bash
 npm install --global pnpm@11.19.0
@@ -104,7 +102,7 @@ pnpm build
 pnpm start
 ```
 
-打开 `http://localhost:8080`，点击“载入演示规范”，再点击“运行兼容性分析”，即可完成第一次分析。AI 默认关闭，因此这一步不需要 API Key，也不会调用云端模型。
+打开 `http://localhost:8080`，点击“载入演示规范”，再点击“运行兼容性分析”，即可完成第一次检查。AI 默认关闭，因此不需要 API Key，也不会向任何模型服务发送请求。
 
 开发模式使用：
 
@@ -112,68 +110,66 @@ pnpm start
 pnpm dev
 ```
 
-此时 Web 开发服务器位于 `http://localhost:5173`，并将 `/api` 代理到本机 `8080` 端口。
+Web 开发服务器会运行在 `http://localhost:5173`，并把 `/api` 请求代理到本机 `8080` 端口。
 
-### Windows 启动
+### Windows 一键启动
 
-BAT 入口会调用兼容 Windows PowerShell 5.1 的启动器，并仅为该进程临时绕过执行策略。首次运行可一次完成锁定依赖安装、构建和启动：
+Windows 用户可以直接运行 BAT 启动器。第一次运行时，用一条命令完成依赖安装、构建和启动：
 
 ```powershell
 .\start-contractguard.bat --install
 ```
 
-常用启动与维护方式：
+常用命令：
 
 ```powershell
+# 正常启动
 .\start-contractguard.bat
-# 或使用 V1.1 多模型配置启动：
-.\start-contractguard.bat --config .\config\llm-providers.local.json
-# 修改源码后重新构建并启动：
+
+# 修改源码后重新构建并启动
 .\start-contractguard.bat --build
-# 只运行确定性分析器：
+
+# 关闭 AI，只运行确定性分析器
 .\start-contractguard.bat --no-ai
-# 检查运行环境、构建、LLM JSON 和规则策略，但不启动：
-.\start-contractguard.bat --check --config .\config\llm-providers.local.json --policy .\config\rule-policy.example.json
+
+# 检查环境和配置，不启动服务
+.\start-contractguard.bat --check
 ```
 
-不传参数时，脚本会优先自动使用 `config\llm-providers.local.json`；文件不存在时才进入旧版 DeepSeek 流程。它会使用服务端解析器严格验证 JSON，拒绝缺失或过期的构建产物，保留已有环境设置，并且只在顶层 AI 与活动档案均启用且缺少必要密钥时安全提示。输入内容只存在于本次服务进程，不会写入项目文件。启动器不会自动读取 `.env`；请通过当前进程环境变量或 secret manager 注入密钥。运行 `start-contractguard.bat --help` 可查看主机、端口和自动化不暂停等完整选项。若自定义 Windows 路径包含 `&` 等 CMD 元字符，请在 PowerShell 中设置 `CONTRACTGUARD_LLM_CONFIG`/`CONTRACTGUARD_POLICY_CONFIG`，不要把该路径作为 BAT 参数传递。
+如果 `config\llm-providers.local.json` 存在，BAT 启动器会自动读取；也可以通过 `--config` 指定其他配置文件。脚本兼容 Windows PowerShell 5.1，输入的密钥只保存在本次服务进程中，不会写进项目文件。完整参数见[用户指南](docs/user-guide.md)或运行 `start-contractguard.bat --help`。
 
-## 使用 CLI 与 CI
+## 接入 CLI 与 CI
 
-完成构建后，可运行仓库自带的破坏性变更示例：
-
-```bash
-pnpm demo
-```
-
-生成 Markdown 报告并在发现 `breaking` 变化时让流程失败：
+完成构建后，可以直接比较两份规范：
 
 ```bash
 pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaking.yaml --format markdown --output contractguard-report.md --fail-on breaking
 ```
 
-`--fail-on` 可取 `breaking`、`potentially-breaking` 或 `never`。CLI 退出码如下：
+`--fail-on` 支持 `breaking`、`potentially-breaking` 和 `never`。CLI 退出码约定如下：
 
-- `0`：分析完成，且没有达到指定失败阈值；
-- `1`：文件读取、输入解析或程序执行失败；
-- `2`：发现达到指定阈值的风险。
+- `0`：分析正常完成，结果没有达到失败阈值；
+- `1`：文件读取、规范解析或程序执行失败；
+- `2`：发现达到指定阈值的兼容性风险。
 
-可直接复制的 GitHub Actions 示例位于 [`examples/github-actions-contractguard.yml`](examples/github-actions-contractguard.yml)。示例假设仓库中存在 `openapi/released.yaml` 和 `openapi/candidate.yaml`，使用前需替换成自己的文件路径。
+仓库提供了可直接改造的 [GitHub Actions 示例](examples/github-actions-contractguard.yml)。示例默认比较 `openapi/released.yaml` 与 `openapi/candidate.yaml`，使用时替换为项目自己的文件路径即可。
 
-### 可选规则策略
+### 自定义规则策略
 
-V1.1 可以通过受校验的 JSON 策略关闭或重分类已知规则，并调整评分权重：
+如果团队需要调整判定口径，可以复制规则策略样例：
 
 ```bash
 cp config/rule-policy.example.json config/rule-policy.local.json
 pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaking.yaml --policy config/rule-policy.local.json --fail-on breaking
 ```
 
-API 服务使用 `CONTRACTGUARD_POLICY_CONFIG=./config/rule-policy.local.json`。新生成的结果和导出报告会记录规范化策略、baseline 与 candidate 的 SHA-256 指纹；1.0.x 写入的旧历史可能没有这些可选字段。详见[规则策略与输入指纹](docs/rule-policy.md)。
+策略文件可以关闭已知规则、调整风险等级和修改评分权重。API 服务通过 `CONTRACTGUARD_POLICY_CONFIG` 读取同一份策略。新生成的结果会同时记录基线规范、候选规范和规范化策略的 SHA-256 指纹，便于确认一份报告究竟由哪些输入和规则产生。详见[规则策略与输入指纹](docs/rule-policy.md)。
 
-## 可选：启用多 LLM 解读
+## 可选：接入多种 LLM
 
-AI 解读不是核心分析的前置条件。V1.1 内置 DeepSeek、OpenAI、Gemini 与 Ollama 样例，也允许管理员为符合已审计 OpenAI-compatible Chat 契约的服务定义安全 provider 标识。先复制配置样例，并用 `activeProfile` 选择默认档案：
+AI 解读不是运行兼容性分析的前置条件。仓库提供的[配置示例](config/llm-providers.example.json)已经包含 DeepSeek、OpenAI、Gemini 和本地 Ollama；也可以为其他兼容 OpenAI Chat Completions 接口的服务添加受控配置。
+
+先复制配置文件：
 
 ```powershell
 Copy-Item config/llm-providers.example.json config/llm-providers.local.json
@@ -182,21 +178,19 @@ $env:DEEPSEEK_API_KEY = '<YOUR_DEEPSEEK_API_KEY>'
 pnpm start
 ```
 
-在副本中只启用实际允许使用的档案，并替换模型占位符。`allowRequestProfileOverride` 决定 Web/API 是否可以选择另一个已启用档案；设为 `false` 时，所有调用都使用 `activeProfile`。浏览器只能提交档案 ID，不能提交任意 URL、模型名、请求头或密钥。
+在副本中只启用计划使用的模型配置，并通过 `activeProfile` 选择默认项。`allowRequestProfileOverride` 为 `true` 时，Web 和 API 可以在已启用的配置之间切换；为 `false` 时，所有请求都使用默认配置。完整字段定义见对应的 [JSON Schema](config/llm-providers.schema.json)。
 
-每个档案还要声明端点的请求能力。对于不接受旧 `max_tokens` 的 OpenAI 模型，应使用 `tokenLimitParameter: "max_completion_tokens"`；仓库样例已经展示这一差异。
+真实密钥不能写入 JSON。配置文件只保存环境变量名称，例如 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`，实际值由服务端进程读取。浏览器只能提交服务端允许的配置 ID，不能自行指定模型地址、模型名称、请求头或密钥。
 
-真实密钥不能写入 JSON。Bearer 档案只保存 `secretEnv` 名称，例如 `OPENAI_API_KEY`；对应值应由服务端进程环境注入。完整字段见 [`config/llm-providers.example.json`](config/llm-providers.example.json)及其严格的 [`JSON Schema`](config/llm-providers.schema.json)，环境变量模板见 [`.env.example`](.env.example)。未设置 `CONTRACTGUARD_LLM_CONFIG` 时，旧版 `CONTRACTGUARD_AI_ENABLED` 与 `DEEPSEEK_*` 变量仍作为 DeepSeek-only 兼容模式工作。
+无论选择哪个模型，安全和决策边界都保持不变：
 
-数据与决策边界：
+- 默认不发送原始 OpenAPI 文档，也不发送完整的 `before`/`after` 对象；
+- 模型只接收数量和长度都受限制的风险摘要，其中仍可能包含内部接口名称；
+- 模型返回值必须通过运行时结构校验；
+- AI 不能修改规则等级、兼容性得分、`compatible` 值或 CI 退出码；
+- 不会在一个模型失败后自动切换到其他服务，避免数据在未授权的边界之间流动。
 
-- API Key 只由服务端读取，不会返回给浏览器；
-- 默认不发送原始 OpenAPI，也不发送 finding 的完整 `before`/`after` 对象；
-- 发往模型的是有数量与长度上限的 finding 摘要，仍可能包含内部接口名称；
-- 模型响应必须通过运行时结构校验；
-- AI 输出不能改变规则等级、兼容性得分、`compatible` 值或 CI 退出码。
-
-完整的档案格式、PowerShell、bash、Docker、状态检查和 API 调用示例见 [`docs/ai-report-interpreter.md`](docs/ai-report-interpreter.md)。调用云端模型可能产生费用；启用前应分别核对所选服务当前的数据政策、条款和价格。本文不写死可能变化的模型清单或价格。
+完整字段、PowerShell/bash 用法、Docker 配置、状态检查和 API 示例见[多 LLM 报告解释器指南](docs/ai-report-interpreter.md)。云端模型可能收费；启用前请自行确认所选服务当前的数据政策、使用条款和价格。
 
 ## Docker
 
@@ -204,97 +198,100 @@ pnpm start
 docker compose up --build
 ```
 
-打开 `http://localhost:8080`。Compose 默认只绑定 `127.0.0.1`，分析历史保存在 Docker volume 中。本项目没有内置身份认证、TLS、租户隔离、速率限制或 AI 预算控制，不能直接暴露到公网。部署要求见 [Security Policy](SECURITY.md)。
+打开 `http://localhost:8080` 即可使用。Compose 默认只监听 `127.0.0.1`，分析历史保存在 Docker volume 中。
 
-## 常见问题
-
-| 现象 | 处理方法 |
-| --- | --- |
-| 找不到 `pnpm` | 运行 `corepack enable` 和 `corepack prepare pnpm@11.19.0 --activate`，或使用 npm 全局安装固定版本 |
-| PowerShell 禁止运行 `pnpm.ps1` | 将命令改为 `pnpm.cmd`，无需修改系统执行策略 |
-| 页面显示“分析引擎离线” | 确认 API 正在 `8080` 端口运行；开发模式需同时保留 `pnpm dev` 启动的两个进程 |
-| CLI 返回退出码 `2` | 这是达到 `--fail-on` 风险阈值的预期门禁结果，不代表程序崩溃 |
-| AI 显示未启用或未配置 | 检查 `CONTRACTGUARD_LLM_CONFIG`、顶层与活动档案的 `enabled`、`activeProfile` 以及该档案的 `secretEnv`；旧模式仍检查 `CONTRACTGUARD_AI_ENABLED` 与 `DEEPSEEK_API_KEY` |
-| 目标模型无法选择 | 在服务端 JSON 中启用该档案，设置 `allowRequestProfileOverride: true`，注入所需环境变量后重启 API |
-| AI 返回参数不支持、无效或截断的 JSON | 检查 `structuredOutput` 与 `tokenLimitParameter` 是否符合端点能力；重试后仍失败，可提高 `defaults.maxOutputTokens` 或降低 `defaults.maxChanges` |
-
-更完整的运行问题见 [用户指南的故障排查](docs/user-guide.md#11-故障排查)和 [AI 错误说明](docs/ai-report-interpreter.md#10-错误与降级)。
+项目目前没有内置身份认证、TLS、租户隔离、速率限制或 AI 预算控制，因此不要直接暴露到公网。部署前请阅读[安全策略](SECURITY.md)。
 
 ## 系统如何工作
 
 ```mermaid
 flowchart LR
-    A[Baseline OpenAPI] --> P[Parse and normalize]
-    B[Candidate OpenAPI] --> P
-    P --> D[Direction-aware comparison]
-    D --> R[Deterministic rules]
-    R --> S[Score and findings]
-    S --> W[Web review]
-    S --> C[CLI / CI gate]
+    A[已发布的基线规范] --> P[解析并归一化]
+    B[待发布的候选规范] --> P
+    P --> D[按请求与响应方向比较]
+    D --> R[确定性规则引擎]
+    R --> S[评分与风险项]
+    S --> W[Web 人工评审]
+    S --> C[CLI / CI 门禁]
     S --> E[JSON / Markdown / HTML]
-    S --> M[Bounded finding context]
-    M --> AI[Optional selected LLM explanation]
+    S --> M[受限的风险摘要]
+    M --> AI[可选的多模型解读]
 ```
 
-同一套核心引擎由 Web、REST API 与 CLI 复用。用户选择的 LLM 档案位于独立解释支路；所有模型均不可用时，分析、门禁和报告导出仍可正常工作。
+Web、REST API 和 CLI 共用同一套核心引擎。AI 位于独立的解读链路上；即使没有配置模型，或者模型服务暂时不可用，规则分析、CI 门禁和报告导出仍然可以正常工作。
 
-## 工程结构
+## 常见问题
+
+| 现象 | 处理方法 |
+| --- | --- |
+| 找不到 `pnpm` | 运行 `corepack enable` 和 `corepack prepare pnpm@11.19.0 --activate`，或使用 npm 安装固定版本 |
+| PowerShell 禁止运行 `pnpm.ps1` | 改用 `pnpm.cmd`，不需要修改系统执行策略 |
+| 页面提示“分析引擎离线” | 确认 API 正在监听 `8080`；开发模式下要保留 `pnpm dev` 启动的两个进程 |
+| CLI 返回退出码 `2` | 说明结果触发了 `--fail-on` 门禁，不代表程序崩溃 |
+| AI 显示未启用或未配置 | 检查配置文件中的 `enabled`、`activeProfile`、对应模型配置以及所需环境变量 |
+| AI 返回参数错误或无效 JSON | 检查该接口支持的 `structuredOutput` 与 `tokenLimitParameter`，必要时减少发送的风险项或增加输出上限 |
+
+更多排查步骤见[用户指南](docs/user-guide.md#11-故障排查)和 [AI 错误说明](docs/ai-report-interpreter.md#10-错误与降级)。
+
+## 当前边界
+
+ContractGuard 重点支持 OpenAPI 3.0/3.1，以及同一份文档内部的 JSON Pointer `$ref`。以下内容仍需要其他工具或人工评审：
+
+- Swagger 2.0；
+- 外部 URL 和跨文件引用；
+- 完整的 `oneOf`、`anyOf`、`allOf`、discriminator 等组合语义；
+- 业务规则、数据库迁移、性能、SLA 和运行时流量行为；
+- 完整的消费者契约测试、集成测试和灰度发布验证。
+
+兼容性得分用于帮助团队排序风险，不是生产安全的数学证明。测试样例用于验证规则与流程，也不代表对所有真实项目的准确率。具体覆盖范围见[兼容性规则说明](docs/compatibility-rules.md)和[验证记录](docs/verification.md)。
+
+## 项目结构
 
 ```text
 apps/
-  api/       REST API、本地持久化、报告导出与多 LLM 适配器注册表
+  api/       REST API、本地存储、报告导出和多模型适配器
   cli/       本地与 CI 命令行入口
   web/       Vue 3 Web 工作台
 packages/
-  core/      OpenAPI 解析、本地引用解析、兼容性规则与评分
+  core/      OpenAPI 解析、本地引用解析、兼容性规则和评分
 fixtures/    可复现的兼容/不兼容样例与评估清单
-examples/    GitHub Actions 与 AI 请求示例
-config/      规则策略与 LLM 档案的严格 JSON Schema 和样例
-docs/        架构、规则、API、使用、开发、评估和验证文档
-scripts/     端到端冒烟测试
+examples/    GitHub Actions 和 AI 请求示例
+config/      规则策略、模型配置及其 JSON Schema
+docs/        架构、规则、API、使用、开发、评估与验证文档
+scripts/     端到端冒烟测试和 Windows 启动器
 ```
 
-这个项目重点展示的不是“接入了一个模型”，而是完整的软件工程闭环：领域规则建模、前后端复用、稳定 CLI 契约、可复现实例、自动化测试、CI 门禁，以及将生成式解释与确定性决策隔离的可信 AI 设计。
+项目的核心设计原则是把“可重复的兼容性判断”与“生成式解释”分开：规则引擎负责做决定，AI 只负责把已经确认的结果讲清楚。
 
-## 验证
+## 如何验证
 
 ```bash
 pnpm check
 ```
 
-`pnpm check` 会依次完成构建、类型检查、测试、文档链接与示例配置检查，以及端到端冒烟验证。需要定向重跑时可使用 `pnpm docs:check`、`pnpm config:check` 或 `pnpm smoke`。GitHub Actions 会在 Node.js 22 环境中执行同类检查，并确认破坏性 fixture 能触发预期门禁。已记录的本地验证范围见 [`docs/verification.md`](docs/verification.md)；它不等同于对所有真实 OpenAPI 的准确率证明。
+这条命令会依次执行构建、类型检查、自动化测试、文档链接检查、示例配置校验和端到端冒烟测试。需要单独重跑时，可以使用 `pnpm docs:check`、`pnpm config:check` 或 `pnpm smoke`。GitHub Actions 会在 Node.js 22 环境执行同类检查，并确认破坏性样例能够触发预期门禁。
 
-## 当前边界
+可复现的本地验证范围记录在 [`docs/verification.md`](docs/verification.md) 中。
 
-ContractGuard 重点支持 OpenAPI 3.0/3.1 与同一文档内的 JSON Pointer `$ref`。以下内容仍需要其他工具或人工评审：
+## 继续阅读
 
-- Swagger 2.0；
-- 外部 URL 与跨文件引用；
-- 一般化的 `oneOf`、`anyOf`、`allOf`、discriminator 等组合语义；
-- 业务规则、数据库迁移、性能、SLA 与运行时流量行为；
-- 完整的消费者契约测试、集成测试和灰度发布策略。
-
-兼容性得分是用于风险排序的启发式指标，不是生产安全的数学证明。规则覆盖与判定口径见 [`docs/compatibility-rules.md`](docs/compatibility-rules.md)。
-
-## 文档导航
-
-- [项目背景、实际场景与展示价值](docs/project-overview.md)
+- [项目背景、实际场景与设计取舍](docs/project-overview.md)
 - [用户指南](docs/user-guide.md)
 - [系统架构](docs/architecture.md)
 - [兼容性规则与判定方向](docs/compatibility-rules.md)
 - [规则策略、评分与输入指纹](docs/rule-policy.md)
 - [REST API](docs/api-reference.md)
-- [多 LLM AI 报告解释器](docs/ai-report-interpreter.md)
+- [多 LLM 报告解释器](docs/ai-report-interpreter.md)
 - [开发与扩展规则](docs/development.md)
-- [评估方法与结果](docs/evaluation.md)
+- [评估方法](docs/evaluation.md)
 - [验证记录](docs/verification.md)
 - [交付与发布检查](docs/delivery-checklist.md)
 - [版本记录](CHANGELOG.md)
 - [贡献指南](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
 
-## License
+## 开源许可
 
 [MIT](LICENSE)
 
-欢迎贡献真实且经过脱敏的误报或漏报最小样例，参与方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎提交经过脱敏、能够稳定复现的误报或漏报样例。参与方式见[贡献指南](CONTRIBUTING.md)。
