@@ -1,6 +1,6 @@
 # 验证记录 / Verification Record
 
-本记录说明当前交付截至 2026-09-21 的本地验证范围，便于复现，也明确哪些结论没有被夸大。
+本记录说明当前交付截至 2026-09-23 的本地验证范围，便于复现，也明确哪些结论没有被夸大。
 
 ## 环境
 
@@ -32,8 +32,8 @@
 | AI 请求裁剪、响应上限、JSON 恢复、结构校验、超时和安全错误降级 | 通过（fake provider） |
 | AI 前端状态与结构化响应归一化 | 通过 |
 | Web → API → AI 适配器 → 结构化展示完整流程 | 通过（本机 mock DeepSeek） |
-| 文档本地链接 | 13 个 Markdown 文件、72 个本地链接通过 |
-| AI 示例 JSON、Compose YAML 与变量覆盖 | 通过（静态校验） |
+| 文档本地链接 | 17 个 Markdown 文件、96 个本地链接通过 |
+| AI 示例 JSON、CI/Compose/Issue Form YAML 与变量覆盖 | 通过（静态校验） |
 
 冒烟测试会真正启动已编译 API，确认 Web 静态资源可访问，再读取 `fixtures/evaluation-manifest.json`，逐条创建分析并验证 `mustContain`、`forbiddenSeverities` 与兼容性结论，最后检查 HTML 报告包含证据。
 

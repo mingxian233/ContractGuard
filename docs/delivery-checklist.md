@@ -1,6 +1,6 @@
 # ContractGuard 交付与发布检查 / Delivery Checklist
 
-更新日期：2026-09-21
+更新日期：2026-09-23
 
 公开仓库：[mingxian233/ContractGuard](https://github.com/mingxian233/ContractGuard)
 
@@ -27,15 +27,17 @@
 | REST API | `apps/api/` | 健康检查、规则目录、分析创建/查询/删除、报告导出、AI 状态与 AI review |
 | CLI / CI 入口 | `apps/cli/` | 文件比较、四种输出格式、三种失败阈值与稳定退出码 |
 | Web 工作台 | `apps/web/` | 规范导入/粘贴、演示数据、结果筛选、规则目录、历史、导出和 AI 解读 |
-| 示例与评估 | `fixtures/`、`examples/` | breaking/compatible fixture、manifest、GitHub Actions 与 AI 请求示例 |
+| 示例与评估 | `fixtures/`、`examples/` | breaking/compatible fixture、manifest、可直接阅读的样例报告、GitHub Actions 与 AI 请求示例 |
 | 自动化验证 | `scripts/`、各 workspace 测试 | 单元测试、类型检查、构建与端到端冒烟检查 |
 | 部署入口 | `Dockerfile`、`docker-compose.yml` | 单容器构建、本机端口绑定与持久化 volume |
 | Windows 启动 | `start-contractguard.bat` | 环境检查、可选安全读取 DeepSeek Key、启动已构建服务 |
 
 ## 3. 文档与治理交付
 
-- [x] 中文入口：[`README.md`](../README.md)
-- [x] English overview：[`README.en.md`](../README.en.md)
+- [x] 默认英文入口：[`README.md`](../README.md)
+- [x] 中文入口：[`README.zh-CN.md`](../README.zh-CN.md)
+- [x] 贡献、Issue 与 PR 流程：[`CONTRIBUTING.md`](../CONTRIBUTING.md)、[`.github/ISSUE_TEMPLATE/`](../.github/ISSUE_TEMPLATE)、[`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md)
+- [x] 版本记录：[`CHANGELOG.md`](../CHANGELOG.md)
 - [x] 产品背景、实际场景与作品集陈述：[`docs/project-overview.md`](./project-overview.md)
 - [x] 用户操作：[`docs/user-guide.md`](./user-guide.md)
 - [x] 系统设计：[`docs/architecture.md`](./architecture.md)
