@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
           <small>OpenAPI 3.0 / 3.1</small>
         </div>
       </div>
-      <p class="version">规则引擎 v1.0.1</p>
+      <p class="version">规则引擎 v1.1.0</p>
     </aside>
 
     <main>

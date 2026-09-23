@@ -7,9 +7,11 @@ import type {
   OpenApiInput,
   Severity,
 } from "./types.js";
+import { fingerprintOpenApiInput } from "./fingerprint.js";
 import { parseOpenApi, resolveNode } from "./parser.js";
+import { resolveRulePolicy, type ResolvedRulePolicy } from "./policy.js";
 
-export const ENGINE_VERSION = "1.0.1";
+export const ENGINE_VERSION = "1.1.0";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
 type Direction = "request" | "response";
@@ -22,6 +24,7 @@ interface CompareContext {
   changes: DraftChange[];
   comparedSecuritySchemes: Set<string>;
   options: Required<Pick<AnalyzeOptions, "includeInfo" | "includeNonBreaking">>;
+  policy: ResolvedRulePolicy;
 }
 
 function isRecord(value: unknown): value is Node {
@@ -59,9 +62,12 @@ function compareText(left: string, right: string): number {
 }
 
 function add(ctx: CompareContext, change: DraftChange): void {
-  if (change.severity === "info" && !ctx.options.includeInfo) return;
-  if (change.severity === "non-breaking" && !ctx.options.includeNonBreaking) return;
-  ctx.changes.push(change);
+  const configured = ctx.policy.rules[change.ruleId];
+  if (configured?.enabled === false) return;
+  const resolved = configured?.severity === undefined ? change : { ...change, severity: configured.severity };
+  if (resolved.severity === "info" && !ctx.options.includeInfo) return;
+  if (resolved.severity === "non-breaking" && !ctx.options.includeNonBreaking) return;
+  ctx.changes.push(resolved);
 }
 
 function change(
@@ -1009,8 +1015,11 @@ function comparePaths(ctx: CompareContext): void {
   }
 }
 
-function sourceDescription(document: OpenApiDocument): AnalysisResult["source"]["old"] {
-  const result: AnalysisResult["source"]["old"] = { openapi: document.openapi };
+function sourceDescription(
+  document: OpenApiDocument,
+  fingerprint: AnalysisResult["source"]["old"]["fingerprint"],
+): AnalysisResult["source"]["old"] {
+  const result: AnalysisResult["source"]["old"] = { openapi: document.openapi, fingerprint };
   if (typeof document.info?.title === "string") result.title = document.info.title;
   if (typeof document.info?.version === "string") result.version = document.info.version;
   return result;
@@ -1041,13 +1050,17 @@ export function analyzeCompatibility(
   newSpec: OpenApiInput,
   options: AnalyzeOptions = {},
 ): AnalysisResult {
+  const oldFingerprint = fingerprintOpenApiInput(oldSpec);
+  const newFingerprint = fingerprintOpenApiInput(newSpec);
   const oldDocument = parseOpenApi(oldSpec).document;
   const newDocument = parseOpenApi(newSpec).document;
+  const policy = resolveRulePolicy(options.policy);
   const ctx: CompareContext = {
     oldDocument,
     newDocument,
     changes: [],
     comparedSecuritySchemes: new Set<string>(),
+    policy,
     options: {
       includeInfo: options.includeInfo ?? true,
       includeNonBreaking: options.includeNonBreaking ?? true,
@@ -1062,7 +1075,7 @@ export function analyzeCompatibility(
     nonBreaking: changes.filter((item) => item.severity === "non-breaking").length,
     info: changes.filter((item) => item.severity === "info").length,
   };
-  const risk = summary.breaking * 12 + summary.potentiallyBreaking * 4;
+  const risk = changes.reduce((total, item) => total + policy.scoring[item.severity], 0);
   const timestamp = options.generatedAt instanceof Date
     ? options.generatedAt.toISOString()
     : typeof options.generatedAt === "string"
@@ -1071,7 +1084,11 @@ export function analyzeCompatibility(
   return {
     engineVersion: ENGINE_VERSION,
     generatedAt: timestamp,
-    source: { old: sourceDescription(oldDocument), new: sourceDescription(newDocument) },
+    policy: policy.metadata,
+    source: {
+      old: sourceDescription(oldDocument, oldFingerprint),
+      new: sourceDescription(newDocument, newFingerprint),
+    },
     score: Math.max(0, 100 - Math.min(100, risk)),
     compatible: summary.breaking === 0,
     summary,

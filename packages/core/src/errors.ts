@@ -3,7 +3,8 @@ export type ContractGuardErrorCode =
   | "INVALID_DOCUMENT"
   | "UNSUPPORTED_SPEC_VERSION"
   | "INVALID_REFERENCE"
-  | "EXTERNAL_REFERENCE_UNSUPPORTED";
+  | "EXTERNAL_REFERENCE_UNSUPPORTED"
+  | "INVALID_POLICY";
 
 export class ContractGuardError extends Error {
   readonly code: ContractGuardErrorCode;

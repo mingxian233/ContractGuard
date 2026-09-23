@@ -2,7 +2,7 @@
 
 > **English title:** ContractGuard — An Explainable OpenAPI Compatibility Analysis Platform
 >
-> **产品定位：** 面向 API 设计评审和持续集成的本地优先契约变更检查工具，并提供与确定性判定隔离的可选 DeepSeek 报告解释器。
+> **产品定位：** 面向 API 设计评审和持续集成的本地优先契约变更检查工具，提供可审计规则策略、输入指纹，以及与确定性判定隔离的可选多 LLM 报告解释器。
 
 ## 1. 一句话说明
 
@@ -69,7 +69,7 @@ node apps/cli/dist/index.js compare openapi/released.yaml openapi/candidate.yaml
 
 ### 场景 C：客户端迁移与跨团队沟通
 
-当 breaking change 确实无法避免时，规则报告负责提供事实依据；可选的 DeepSeek 解释器可以把多个 finding 整理成：
+当 breaking change 确实无法避免时，规则报告负责提供事实依据；可选的多 LLM 解释器可以从管理员批准的 DeepSeek、OpenAI、Gemini、Ollama 或其他 OpenAI-compatible 档案中选择，把多个 finding 整理成：
 
 - 面向评审者的风险摘要；
 - 按优先级排列的关键影响；
@@ -81,14 +81,15 @@ AI 输出适合作为沟通草稿，不是新的判定来源。客户端负责�
 
 ### 场景 D：本地审计、教学与复现实验
 
-ContractGuard 不依赖数据库或云端分析服务。研究者或学生可以使用 fixture 重放固定变更，查看方向性规则如何工作，并通过测试与评估清单复核结果。JSON 输出也便于后续统计规则分布、构建更大的标注集或比较不同版本的引擎行为。
+ContractGuard 不依赖数据库或云端分析服务。研究者或学生可以使用 fixture 重放固定变更，查看方向性规则如何工作，并通过测试与评估清单复核结果。V1.1 还在结果中记录 baseline、candidate 和规范化策略的 SHA-256，使同一输入与治理口径可以被复核；规则策略可在不修改源码的前提下启停、重分类规则和调整评分权重。
 
 ## 5. 一次完整分析如何发生
 
 ```mermaid
 flowchart LR
-    A[Released baseline] --> P[Parse and validate]
+    A[Released baseline] --> P[Fingerprint, parse and validate]
     B[Candidate contract] --> P
+    G[Validated rule policy] --> R
     P --> L[Resolve local references]
     L --> D[Direction-aware comparison]
     D --> R[Deterministic rule findings]
@@ -97,16 +98,17 @@ flowchart LR
     S --> C[CLI / CI gate]
     S --> E[JSON / Markdown / HTML]
     S --> M[Bounded finding context]
-    M --> AI[Optional DeepSeek explanation]
+    M --> AI[Optional selected LLM explanation]
 ```
 
 1. 解析 YAML/JSON，并确认输入属于支持的 OpenAPI 3.0/3.1 系列；
 2. 解析同一文档内的 JSON Pointer `$ref`；
-3. 按 path、HTTP operation、参数、request body、response、schema 与 security 等维度比较；
-4. 根据请求与响应方向产生 `breaking`、`potentially-breaking`、`non-breaking` 或 `info` finding；
-5. 汇总数量并计算用于排序的启发式分数；
-6. 通过 Web、CLI、REST API 或导出报告消费同一份结果；
-7. 只有用户主动生成 AI 解读时，服务端才会发送裁剪后的 finding 上下文。
+3. 计算输入与规范化规则策略的 SHA-256 审计指纹；
+4. 按 path、HTTP operation、参数、request body、response、schema 与 security 等维度比较；
+5. 应用规则启停和 severity 覆盖，产生 `breaking`、`potentially-breaking`、`non-breaking` 或 `info` finding；
+6. 使用策略评分权重汇总数量并计算启发式分数；
+7. 通过 Web、CLI、REST API 或导出报告消费同一份结果；
+8. 只有用户主动生成 AI 解读时，服务端才会发送裁剪后的 finding 上下文。
 
 同样的核心引擎由 Web、API 和 CLI 复用，避免不同入口给出不同兼容性口径。
 
@@ -134,8 +136,8 @@ Web 工作台还内置一组 Campus Events API 演示数据。它与 `fixtures/`
 
 | 层 | 负责 | 不负责 |
 | --- | --- | --- |
-| 确定性规则引擎 | finding、severity、score、`compatible`、CI 退出码 | 自然语言汇总和受众化表达 |
-| DeepSeek 解释层 | 摘要、关键风险、迁移步骤、测试建议 | 改写规则结果或改变门禁结论 |
+| 确定性规则引擎 + 已验证策略 | finding、severity、score、`compatible`、CI 退出码和指纹 | 自然语言汇总和受众化表达 |
+| 可选 LLM 解释层 | 摘要、关键风险、迁移步骤、测试建议 | 改写规则结果或改变门禁结论 |
 
 默认情况下，AI 请求不包含原始 OpenAPI，也不包含完整 `before`/`after` 对象；只发送数量与字段长度受限的 finding 摘要。由于摘要仍可能包含内部接口名称，使用者仍需执行数据分级、脱敏和费用评估。具体配置见 [AI 报告解释器](./ai-report-interpreter.md)。
 
@@ -161,6 +163,7 @@ Web 工作台还内置一组 Campus Events API 演示数据。它与 `fixtures/`
 - **全栈一致性：** Web、REST API 和 CLI 复用同一 TypeScript 核心；
 - **工程交付：** 包含文件持久化、报告导出、Docker、Windows 启动和 GitHub Actions；
 - **可解释性：** 每条结论包含规则 ID、位置与适用证据，不依赖黑盒总分；
+- **治理与审计：** 规则策略可配置且严格校验，结果记录输入和策略指纹；
 - **可信 AI：** 生成式模型只做受约束的解释，不进入确定性决策路径；
 - **验证意识：** 使用单元测试、fixture、manifest 冒烟测试和公开评估方法区分“已经验证”与“尚未证明”。
 
@@ -168,7 +171,7 @@ Web 工作台还内置一组 Campus Events API 演示数据。它与 `fixtures/`
 
 建议把重点放在问题建模与工程取舍，而不是把它描述成“AI 自动检测一切”。一个准确的简短表述是：
 
-> 设计并实现了一个 OpenAPI 向后兼容性分析平台，将请求/响应方向相关的契约变化建模为可解释规则，并以同一核心支持 Web、REST API 与 CI CLI；进一步加入与门禁隔离的 DeepSeek 解释层，用结构校验和最小化上下文控制生成式输出风险。
+> 设计并实现了一个 OpenAPI 向后兼容性分析平台，将请求/响应方向相关的契约变化建模为可解释规则，以策略 JSON 和 SHA-256 指纹支持可审计治理，并以同一核心支持 Web、REST API 与 CI CLI；进一步加入可切换的多 LLM 解释层，通过服务端 allowlist、结构校验和最小化上下文控制生成式输出风险。
 
 展示时可以按“真实故障场景 → 方向性规则 → 统一架构 → CI 门禁 → 可信 AI 边界 → 可复现验证”的顺序演示。应避免声称“覆盖全部 OpenAPI”“已经证明生产安全”或“达到某个准确率”，除非对应数据集、实验记录和失败案例已经公开。
 

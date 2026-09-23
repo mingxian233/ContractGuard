@@ -51,7 +51,12 @@ function markdown(result: AnalysisResult, labels: { baseline: string; candidate:
     `- Candidate: **${md(labels.candidate)}**`,
     `- Score: **${result.score}/100**`,
     `- Backward compatible: **${result.compatible ? 'Yes' : 'No'}**`,
-    `- Generated: ${result.generatedAt}`, '',
+    `- Generated: ${result.generatedAt}`,
+    `- Engine: \`${result.engineVersion}\``,
+    ...(result.policy ? [`- Policy: \`${result.policy.id}\` · SHA-256 \`${result.policy.fingerprint.value}\``] : []),
+    ...(result.source.old.fingerprint ? [`- Baseline SHA-256: \`${result.source.old.fingerprint.value}\``] : []),
+    ...(result.source.new.fingerprint ? [`- Candidate SHA-256: \`${result.source.new.fingerprint.value}\``] : []),
+    '',
     '| Breaking | Potential | Non-breaking | Info | Total |',
     '| ---: | ---: | ---: | ---: | ---: |',
     `| ${result.summary.breaking} | ${result.summary.potentiallyBreaking} | ${result.summary.nonBreaking} | ${result.summary.info} | ${result.summary.total} |`, '',
@@ -73,7 +78,13 @@ function markdown(result: AnalysisResult, labels: { baseline: string; candidate:
 
 function htmlReport(result: AnalysisResult, labels: { baseline: string; candidate: string }): string {
   const rows = result.changes.map((change) => `<tr><td class="${css(change.severity)}">${esc(change.severity)}</td><td><code>${esc(change.ruleId)}</code></td><td><code>${esc(change.location)}</code></td><td>${esc(change.message)}</td></tr>`).join('');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ContractGuard report</title><style>body{font:15px system-ui;margin:40px;color:#18202c;background:#f5f7fb}main{max-width:1100px;margin:auto}header,section{background:white;border:1px solid #dfe5ee;border-radius:14px;padding:24px;margin-bottom:18px}.score{font-size:44px;font-weight:800;color:${result.compatible ? '#087f5b' : '#c92a2a'}}table{border-collapse:collapse;width:100%}th,td{padding:12px;border-bottom:1px solid #e9edf3;text-align:left;vertical-align:top}.breaking{color:#c92a2a}.potentially-breaking{color:#a65b00}.non-breaking{color:#087f5b}.info{color:#1554ad}code{font-size:12px}</style></head><body><main><header><h1>ContractGuard report</h1><p>${esc(labels.baseline)} → ${esc(labels.candidate)}</p><div class="score">${result.score}/100</div><p>${result.compatible ? 'No covered breaking changes detected' : 'Breaking changes detected'}</p></header><section><table><thead><tr><th>Severity</th><th>Rule</th><th>Location</th><th>Finding</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No contract changes detected.</td></tr>'}</tbody></table></section><small>Static rule analysis is not a formal proof of runtime compatibility.</small></main></body></html>\n`;
+  const audit = [
+    `Engine ${result.engineVersion}`,
+    ...(result.policy ? [`Policy ${result.policy.id} · ${result.policy.fingerprint.value}`] : []),
+    ...(result.source.old.fingerprint ? [`Baseline SHA-256 ${result.source.old.fingerprint.value}`] : []),
+    ...(result.source.new.fingerprint ? [`Candidate SHA-256 ${result.source.new.fingerprint.value}`] : []),
+  ].map((item) => `<div><code>${esc(item)}</code></div>`).join('');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ContractGuard report</title><style>body{font:15px system-ui;margin:40px;color:#18202c;background:#f5f7fb}main{max-width:1100px;margin:auto}header,section{background:white;border:1px solid #dfe5ee;border-radius:14px;padding:24px;margin-bottom:18px}.score{font-size:44px;font-weight:800;color:${result.compatible ? '#087f5b' : '#c92a2a'}}.audit{color:#596579;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{padding:12px;border-bottom:1px solid #e9edf3;text-align:left;vertical-align:top}.breaking{color:#c92a2a}.potentially-breaking{color:#a65b00}.non-breaking{color:#087f5b}.info{color:#1554ad}code{font-size:12px}</style></head><body><main><header><h1>ContractGuard report</h1><p>${esc(labels.baseline)} → ${esc(labels.candidate)}</p><div class="score">${result.score}/100</div><p>${result.compatible ? 'No covered breaking changes detected' : 'Breaking changes detected'}</p><div class="audit">${audit}</div></header><section><table><thead><tr><th>Severity</th><th>Rule</th><th>Location</th><th>Finding</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No contract changes detected.</td></tr>'}</tbody></table></section><small>Static rule analysis is not a formal proof of runtime compatibility.</small></main></body></html>\n`;
 }
 
 function css(value: string): string {

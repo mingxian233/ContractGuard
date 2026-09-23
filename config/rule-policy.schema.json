@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mingxian233/ContractGuard/raw/main/config/rule-policy.schema.json",
+  "title": "ContractGuard rule policy",
+  "description": "Optional rule enablement, severity overrides, and scoring weights for ContractGuard 1.1.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "rules": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "PATH_REMOVED",
+          "PATH_ADDED",
+          "OPERATION_REMOVED",
+          "OPERATION_ADDED",
+          "PARAMETER_REMOVED",
+          "PARAMETER_ADDED_REQUIRED",
+          "PARAMETER_ADDED_OPTIONAL",
+          "PARAMETER_REQUIRED",
+          "PARAMETER_OPTIONAL",
+          "REQUEST_BODY_REMOVED",
+          "REQUEST_BODY_ADDED_REQUIRED",
+          "REQUEST_BODY_ADDED_OPTIONAL",
+          "REQUEST_BODY_REQUIRED",
+          "REQUEST_BODY_OPTIONAL",
+          "REQUEST_MEDIA_TYPE_REMOVED",
+          "REQUEST_MEDIA_TYPE_ADDED",
+          "RESPONSE_STATUS_REMOVED",
+          "RESPONSE_STATUS_ADDED",
+          "RESPONSE_MEDIA_TYPE_REMOVED",
+          "RESPONSE_MEDIA_TYPE_ADDED",
+          "SCHEMA_TYPE_CHANGED",
+          "SCHEMA_PRESENCE_CHANGED",
+          "SCHEMA_BOOLEAN_CHANGED",
+          "SCHEMA_ENUM_NARROWED",
+          "SCHEMA_ENUM_WIDENED",
+          "SCHEMA_REQUIRED_PROPERTY_ADDED",
+          "SCHEMA_REQUIRED_PROPERTY_REMOVED",
+          "SCHEMA_PROPERTY_REMOVED",
+          "SCHEMA_PROPERTY_ADDED",
+          "SCHEMA_CONSTRAINT_TIGHTENED",
+          "SCHEMA_CONSTRAINT_RELAXED",
+          "SCHEMA_UNSUPPORTED_KEYWORD_CHANGED",
+          "SECURITY_STRENGTHENED",
+          "SECURITY_RELAXED",
+          "SECURITY_SCHEME_CHANGED",
+          "OPERATION_ID_CHANGED",
+          "DEPRECATED_ADDED",
+          "DEPRECATED_REMOVED",
+          "METADATA_CHANGED"
+        ]
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/ruleOverride"
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "breaking": {
+          "$ref": "#/$defs/weight"
+        },
+        "potentially-breaking": {
+          "$ref": "#/$defs/weight"
+        },
+        "non-breaking": {
+          "$ref": "#/$defs/weight"
+        },
+        "info": {
+          "$ref": "#/$defs/weight"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "severity": {
+      "enum": ["breaking", "potentially-breaking", "non-breaking", "info"]
+    },
+    "ruleOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        }
+      }
+    },
+    "weight": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    }
+  }
+}

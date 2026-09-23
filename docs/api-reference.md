@@ -10,7 +10,7 @@
 
 API 接受 OpenAPI YAML/JSON **文本**或已经解析的 JSON **对象**。浏览器选择本地文件后由前端读取文本，再作为 JSON 请求发送；当前接口不接受 `multipart/form-data` 上传。
 
-AI 报告解释器是默认关闭的可选服务器端集成。它只解释既有确定性 finding，不改变严重等级、得分、`compatible` 或任何 CLI/CI 结果。启用 AI 后尤其需要在公网入口增加鉴权和限流，以防第三方滥用用户的 DeepSeek 配额。
+AI 报告解释器是默认关闭的可选服务器端集成。它只解释既有确定性 finding，不改变严重等级、得分、`compatible` 或任何 CLI/CI 结果。V1.1 可从管理员配置的多个 LLM 档案中选择；启用后尤其需要在公网入口增加鉴权和限流，以防第三方滥用模型额度。
 
 ## 通用错误结构
 
@@ -79,18 +79,24 @@ type Severity =
   "baselineName": "petstore-v1.yaml",
   "candidateName": "petstore-v2.yaml",
   "createdAt": "2026-09-16T10:00:00.000Z",
-  "engineVersion": "1.0.1",
+  "engineVersion": "1.1.0",
   "generatedAt": "2026-09-16T10:00:00.000Z",
+  "policy": {
+    "id": "contractguard-default",
+    "fingerprint": { "algorithm": "sha256", "value": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+  },
   "source": {
     "old": {
       "title": "ContractGuard Petstore",
       "version": "1.0.0",
-      "openapi": "3.0.3"
+      "openapi": "3.0.3",
+      "fingerprint": { "algorithm": "sha256", "value": "1111111111111111111111111111111111111111111111111111111111111111" }
     },
     "new": {
       "title": "ContractGuard Petstore",
       "version": "2.0.0",
-      "openapi": "3.0.3"
+      "openapi": "3.0.3",
+      "fingerprint": { "algorithm": "sha256", "value": "2222222222222222222222222222222222222222222222222222222222222222" }
     }
   },
   "score": 42,
@@ -106,7 +112,7 @@ type Severity =
 }
 ```
 
-上例中的分数和计数仅用于解释字段，不是对 fixture 的承诺结果。`compatible` 只在没有明确 `breaking` 时为 `true`；仍可能存在 `potentially-breaking`。
+上例中的分数和计数仅用于解释字段，不是对 fixture 的承诺结果。`compatible` 只在应用规则策略后没有 `breaking` 时为 `true`；仍可能存在 `potentially-breaking`。1.0.x 历史记录可能没有 `policy` 与 `source.*.fingerprint`，客户端应容忍缺失；字段语义见[规则策略与输入指纹](./rule-policy.md)。
 
 ### AiReview
 
@@ -114,7 +120,9 @@ type Severity =
 interface AiReview {
   schemaVersion: '1.0';
   analysisId: string;
-  provider: 'deepseek';
+  provider: string;
+  providerId: string;
+  providerLabel: string;
   model: string;
   generatedAt: string;
   promptVersion: 'ai-explainer-v1';
@@ -163,7 +171,7 @@ interface AiReview {
 {
   "status": "ok",
   "service": "contractguard-api",
-  "version": "1.0.1"
+  "version": "1.1.0"
 }
 ```
 
@@ -171,7 +179,7 @@ interface AiReview {
 
 ## `GET /api/ai/status`
 
-读取 AI 解释器的本地配置状态。该端点不会调用 DeepSeek，也不会消耗 token。
+读取 AI 解释器的本地配置状态。该端点不会调用任何上游 LLM，也不会消耗 token。
 
 **Response `200`**
 
@@ -182,7 +190,25 @@ interface AiReview {
   "available": true,
   "provider": "deepseek",
   "model": "deepseek-flash",
-  "promptVersion": "ai-explainer-v1"
+  "promptVersion": "ai-explainer-v1",
+  "activeProfile": "deepseek-cloud",
+  "activeProviderId": "deepseek-cloud",
+  "defaultProviderId": "deepseek-cloud",
+  "allowRequestProfileOverride": true,
+  "allowRequestProviderOverride": true,
+  "providers": [
+    {
+      "id": "deepseek-cloud",
+      "label": "DeepSeek",
+      "displayName": "DeepSeek",
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "enabled": true,
+      "configured": true,
+      "available": true,
+      "local": false
+    }
+  ]
 }
 ```
 
@@ -190,14 +216,17 @@ interface AiReview {
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `enabled` | boolean | `CONTRACTGUARD_AI_ENABLED` 是否显式启用 |
+| `enabled` | boolean | JSON 总开关；旧模式对应 `CONTRACTGUARD_AI_ENABLED` |
 | `configured` | boolean | 必要服务端配置是否完整 |
 | `available` | boolean | 当前是否允许发起 AI 请求；不代表已探测上游健康状态 |
-| `provider` | `"deepseek"` | 当前 provider |
-| `model` | string | 当前配置的模型标识 |
+| `provider` | string | 活动档案的 provider 标识 |
+| `model` | string | 活动档案的模型标识 |
 | `promptVersion` | `"ai-explainer-v1"` | 当前提示模板版本 |
+| `activeProfile` / `defaultProviderId` | string | 默认档案 ID；`activeProviderId` 是兼容别名 |
+| `allowRequestProfileOverride` | boolean | 请求能否选择另一个已启用档案；`allowRequestProviderOverride` 是兼容别名 |
+| `providers` | array | 可展示的档案元数据与配置/可用状态；不会包含 URL 或密钥名称 |
 
-此响应永远不包含 API key。不要把 `available: true` 当成 DeepSeek 账号余额、配额或网络连通性的保证。
+此响应永远不包含 API key、`secretEnv` 或 base URL。不要把 `available: true` 当成账号余额、配额或网络连通性的保证。
 
 ## `GET /api/rules`
 
@@ -224,6 +253,8 @@ interface AiReview {
 ## `POST /api/analyses`
 
 创建并保存一次兼容性分析。
+
+若 API 进程设置了 `CONTRACTGUARD_POLICY_CONFIG`，服务会对所有新分析应用启动时验证的规则策略；请求体不能覆盖策略。响应中的 `policy` 与输入 fingerprint 用于审计。未设置时使用 `contractguard-default`。详见[规则策略与输入指纹](./rule-policy.md)。
 
 ### Request body
 
@@ -307,9 +338,9 @@ interface AiReview {
 
 ## `POST /api/analyses/{id}/ai-review`
 
-让 DeepSeek 对一次已经保存的确定性分析生成结构化解释。调用前必须在服务端显式启用并配置 AI。
+让选定的服务端 LLM 档案对一次已经保存的确定性分析生成结构化解释。调用前必须在服务端显式启用并配置 AI。
 
-该接口不会重新分析 OpenAPI，也不会覆盖已保存记录。服务端不发送 baseline/candidate 原始文本，只发送分析名称和版本元数据、确定性摘要，以及最多 `CONTRACTGUARD_AI_MAX_CHANGES` 条经过裁剪的结构化 finding；finding 不含原始 `before`/`after` 对象。
+该接口不会重新分析 OpenAPI，也不会覆盖已保存记录。服务端不发送 baseline/candidate 原始文本，只发送分析名称和版本元数据、确定性摘要，以及最多 `defaults.maxChanges` 条经过裁剪的结构化 finding；旧 DeepSeek 模式使用 `CONTRACTGUARD_AI_MAX_CHANGES`。finding 不含原始 `before`/`after` 对象。
 
 ### Path parameter
 
@@ -321,11 +352,13 @@ interface AiReview {
 | --- | --- | --- | --- |
 | `language` | `"zh-CN"` 或 `"en"` | 否 | AI 解读的目标语言，默认 `zh-CN` |
 | `focus` | string，最多 500 字符 | 否 | 希望优先说明的受众、风险或迁移目标 |
+| `providerId` | string，最多 64 字符 | 否 | 服务端档案 ID；省略时使用 `activeProfile` |
 
 ```json
 {
   "language": "zh-CN",
-  "focus": "优先解释 breaking 变化、旧客户端影响，以及可分阶段执行的迁移方案。"
+  "focus": "优先解释 breaking 变化、旧客户端影响，以及可分阶段执行的迁移方案。",
+  "providerId": "deepseek-cloud"
 }
 ```
 
@@ -338,6 +371,8 @@ interface AiReview {
   "schemaVersion": "1.0",
   "analysisId": "1e7fb7d1-5990-4a68-9f48-1d73e4691134",
   "provider": "deepseek",
+  "providerId": "deepseek-cloud",
+  "providerLabel": "DeepSeek",
   "model": "deepseek-flash",
   "generatedAt": "2026-09-17T08:00:00.000Z",
   "promptVersion": "ai-explainer-v1",
@@ -387,13 +422,16 @@ interface AiReview {
 | HTTP | `error.code` | 原因 |
 | --- | --- | --- |
 | `400` | `INVALID_JSON` | 标记为 JSON 的请求体不是合法 JSON |
-| `400` | `INVALID_AI_REVIEW_REQUEST` | 请求体、未知字段、language 或 focus 不符合约束 |
+| `400` | `INVALID_AI_REVIEW_REQUEST` | 请求体、未知字段、language、focus 或 providerId 不符合约束 |
+| `400` | `AI_PROVIDER_OVERRIDE_DISABLED` | 服务端不允许覆盖活动档案 |
+| `400` | `AI_PROVIDER_NOT_FOUND` | 档案 ID 未配置 |
 | `404` | `ANALYSIS_NOT_FOUND` | 分析 ID 不存在 |
 | `503` | `AI_DISABLED` | AI 开关未启用 |
+| `503` | `AI_PROVIDER_DISABLED` | 目标档案已禁用 |
 | `503` | `AI_NOT_CONFIGURED` | 未配置 API key 等必要参数 |
-| `504` | `AI_UPSTREAM_TIMEOUT` | 调用 DeepSeek 或读取响应超时 |
-| `502` | `AI_UPSTREAM_UNAVAILABLE` | 网络层无法连接 DeepSeek |
-| `502` | `AI_UPSTREAM_ERROR` | DeepSeek 返回非成功状态，或响应无法读取 |
+| `504` | `AI_UPSTREAM_TIMEOUT` | 调用所选 LLM 或读取响应超时 |
+| `502` | `AI_UPSTREAM_UNAVAILABLE` | 网络层无法连接所选 LLM |
+| `502` | `AI_UPSTREAM_ERROR` | 所选 LLM 返回非成功状态，或响应无法读取 |
 | `502` | `AI_INVALID_RESPONSE` | 模型输出无法解析或未通过本地 schema 校验 |
 
 502/504 响应不会使原始 `StoredAnalysis` 失效。客户端应继续展示确定性报告，并允许用户稍后手动重试；不要在无限循环中自动重试付费请求。
@@ -451,7 +489,7 @@ $analysis = Invoke-RestMethod `
 
 $analysis.summary
 
-# Optional: requires server-side DeepSeek configuration.
+# Optional: requires an enabled, server-configured LLM profile.
 $aiReview = Invoke-RestMethod `
   -Method Post `
   -Uri "http://localhost:8080/api/analyses/$($analysis.id)/ai-review" `

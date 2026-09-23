@@ -1,0 +1,86 @@
+{
+  "$schema": "./llm-providers.schema.json",
+  "schemaVersion": 1,
+  "enabled": true,
+  "activeProfile": "deepseek-cloud",
+  "allowRequestProfileOverride": true,
+  "defaults": {
+    "timeoutMs": 30000,
+    "maxChanges": 50,
+    "maxOutputTokens": 8192,
+    "maxResponseBytes": 131072
+  },
+  "profiles": {
+    "deepseek-cloud": {
+      "enabled": true,
+      "displayName": "DeepSeek",
+      "provider": "deepseek",
+      "adapter": "openai-chat",
+      "baseUrl": "https://api.deepseek.com",
+      "model": "deepseek-flash",
+      "auth": {
+        "type": "bearer",
+        "secretEnv": "DEEPSEEK_API_KEY"
+      },
+      "capabilities": {
+        "structuredOutput": "json-object",
+        "thinkingControl": "disabled",
+        "tokenLimitParameter": "max_tokens"
+      },
+      "dataBoundary": "deepseek-cloud"
+    },
+    "openai-cloud": {
+      "enabled": false,
+      "displayName": "OpenAI",
+      "provider": "openai",
+      "adapter": "openai-chat",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "replace-with-an-openai-model-id",
+      "auth": {
+        "type": "bearer",
+        "secretEnv": "OPENAI_API_KEY"
+      },
+      "capabilities": {
+        "structuredOutput": "json-schema",
+        "thinkingControl": "none",
+        "tokenLimitParameter": "max_completion_tokens"
+      },
+      "dataBoundary": "openai-cloud"
+    },
+    "gemini-cloud": {
+      "enabled": false,
+      "displayName": "Gemini",
+      "provider": "gemini",
+      "adapter": "openai-chat",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "model": "replace-with-a-gemini-model-id",
+      "auth": {
+        "type": "bearer",
+        "secretEnv": "GEMINI_API_KEY"
+      },
+      "capabilities": {
+        "structuredOutput": "json-schema",
+        "thinkingControl": "none",
+        "tokenLimitParameter": "max_tokens"
+      },
+      "dataBoundary": "google-cloud"
+    },
+    "ollama-local": {
+      "enabled": false,
+      "displayName": "Ollama Local",
+      "provider": "ollama",
+      "adapter": "openai-chat",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "replace-with-an-installed-ollama-model",
+      "auth": {
+        "type": "none"
+      },
+      "capabilities": {
+        "structuredOutput": "prompt-only",
+        "thinkingControl": "none",
+        "tokenLimitParameter": "max_tokens"
+      },
+      "dataBoundary": "local"
+    }
+  }
+}

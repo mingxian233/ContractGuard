@@ -10,6 +10,8 @@ coverage/
 .env
 .env.*
 !.env.example
+config/*.local.json
+config/llm-providers.json
 **/data/analyses/*
 !**/data/analyses/.gitkeep
 apps/web/public/demo/*.json

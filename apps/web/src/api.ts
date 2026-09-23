@@ -88,17 +88,19 @@ export async function listRules(): Promise<RuleDefinition[]> {
   return normalizeRules(await request('/rules'))
 }
 
-export async function getAiStatus(): Promise<AiServiceStatus> {
-  return normalizeAiStatus(await request('/ai/status'))
+export async function getAiStatus(signal?: AbortSignal): Promise<AiServiceStatus> {
+  return normalizeAiStatus(await request('/ai/status', { signal }))
 }
 
 export async function generateAiReview(
   analysisId: string,
-  input: { language: 'zh-CN'; focus?: string },
+  input: { language: 'zh-CN'; focus?: string; providerId?: string },
+  signal?: AbortSignal,
 ): Promise<AiReviewReport> {
   const result = await request(`/analyses/${encodeURIComponent(analysisId)}/ai-review`, {
     method: 'POST',
     body: JSON.stringify(input),
+    signal,
   })
   return normalizeAiReview(result)
 }

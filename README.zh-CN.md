@@ -13,13 +13,13 @@
 
 ContractGuard 比较一份已经发布的 OpenAPI 契约（baseline）与一份待发布契约（candidate），判断新版本是否可能破坏现有调用方。它不仅展示“改了什么”，还会说明风险等级、触发规则、准确位置、前后证据以及建议的迁移方式。
 
-兼容性结论由确定性规则引擎产生；可选的 DeepSeek 集成只负责把既有结果整理成风险摘要、迁移计划和测试建议，不参与评分与发布门禁。
+兼容性结论由确定性规则引擎产生；可选的多 LLM 解释器可以使用服务端配置的 DeepSeek、OpenAI、Gemini 或 Ollama 档案，把既有结果整理成风险摘要、迁移计划和测试建议，但不参与评分与发布门禁。
 
 当前版本面向 OpenAPI 3.0/3.1。语法定义请以 [OpenAPI 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)、[OpenAPI 3.1.2](https://spec.openapis.org/oas/v3.1.2.html)及[官方版本索引](https://spec.openapis.org/oas/)为准。
 
 **[查看真实报告](examples/reports/petstore-breaking.md) · [本地运行](#五分钟运行) · [接入 CI](#使用-cli-与-ci) · [理解规则模型](docs/compatibility-rules.md)**
 
-当前版本已通过 67 项自动化测试与 2 个端到端 fixture；可复现记录见[验证文档](docs/verification.md)。Fixture 覆盖不等同于真实项目准确率。
+当前版本由仓库自动化测试和端到端 fixture 套件验证；可复现记录见[验证文档](docs/verification.md)。Fixture 覆盖不等同于真实项目准确率。
 
 ## 先看结果
 
@@ -70,7 +70,9 @@ ContractGuard 是静态契约分析工具，不是运行时监控、API 安全�
 | CLI / CI 门禁 | 支持 `table`、`json`、`markdown`、`html` 输出和可配置失败阈值 |
 | REST API | 创建、读取和删除分析，读取规则目录，导出 JSON/Markdown/HTML 报告 |
 | 本地持久化 | 分析记录以 JSON 文件保存在本机，无需数据库 |
-| 可选 DeepSeek 解读 | 对经过裁剪的 finding 生成结构化摘要、迁移步骤和测试建议 |
+| Policy as Code | 通过严格校验的 JSON 启停或重分类已知规则，并配置评分权重 |
+| 可复现审计信息 | 为 baseline、candidate 与规范化规则策略记录 SHA-256 指纹 |
+| 可选多 LLM 解读 | 从已启用的 DeepSeek、OpenAI、Gemini 或 Ollama 档案中选择，并对经过裁剪的 finding 生成结构化解读 |
 
 ## 五分钟运行
 
@@ -114,15 +116,27 @@ pnpm dev
 
 ### Windows 启动
 
-如果 PowerShell 拦截 `pnpm.ps1`，使用对应的 `.cmd` 命令：
+BAT 入口会调用兼容 Windows PowerShell 5.1 的启动器，并仅为该进程临时绕过执行策略。首次运行可一次完成锁定依赖安装、构建和启动：
 
 ```powershell
-pnpm.cmd install --frozen-lockfile
-pnpm.cmd build
-.\start-contractguard.bat
+.\start-contractguard.bat --install
 ```
 
-启动脚本会提示输入可选的 DeepSeek API Key。直接按 Enter 将仅启动本地规则引擎；输入的 Key 只存在于该次服务进程的环境中，不会写入项目文件。
+常用启动与维护方式：
+
+```powershell
+.\start-contractguard.bat
+# 或使用 V1.1 多模型配置启动：
+.\start-contractguard.bat --config .\config\llm-providers.local.json
+# 修改源码后重新构建并启动：
+.\start-contractguard.bat --build
+# 只运行确定性分析器：
+.\start-contractguard.bat --no-ai
+# 检查运行环境、构建、LLM JSON 和规则策略，但不启动：
+.\start-contractguard.bat --check --config .\config\llm-providers.local.json --policy .\config\rule-policy.example.json
+```
+
+不传参数时，脚本会优先自动使用 `config\llm-providers.local.json`；文件不存在时才进入旧版 DeepSeek 流程。它会使用服务端解析器严格验证 JSON，拒绝缺失或过期的构建产物，保留已有环境设置，并且只在顶层 AI 与活动档案均启用且缺少必要密钥时安全提示。输入内容只存在于本次服务进程，不会写入项目文件。启动器不会自动读取 `.env`；请通过当前进程环境变量或 secret manager 注入密钥。运行 `start-contractguard.bat --help` 可查看主机、端口和自动化不暂停等完整选项。若自定义 Windows 路径包含 `&` 等 CMD 元字符，请在 PowerShell 中设置 `CONTRACTGUARD_LLM_CONFIG`/`CONTRACTGUARD_POLICY_CONFIG`，不要把该路径作为 BAT 参数传递。
 
 ## 使用 CLI 与 CI
 
@@ -146,21 +160,33 @@ pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaki
 
 可直接复制的 GitHub Actions 示例位于 [`examples/github-actions-contractguard.yml`](examples/github-actions-contractguard.yml)。示例假设仓库中存在 `openapi/released.yaml` 和 `openapi/candidate.yaml`，使用前需替换成自己的文件路径。
 
-## 可选：启用 DeepSeek
+### 可选规则策略
 
-AI 解读不是核心分析的前置条件。服务端需要显式启用并读取以下环境变量：
+V1.1 可以通过受校验的 JSON 策略关闭或重分类已知规则，并调整评分权重：
 
-```dotenv
-CONTRACTGUARD_AI_ENABLED=true
-DEEPSEEK_API_KEY=<YOUR_DEEPSEEK_API_KEY>
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-flash
-CONTRACTGUARD_AI_TIMEOUT_MS=30000
-CONTRACTGUARD_AI_MAX_CHANGES=50
-CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS=8192
+```bash
+cp config/rule-policy.example.json config/rule-policy.local.json
+pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaking.yaml --policy config/rule-policy.local.json --fail-on breaking
 ```
 
-`.env.example` 是配置模板；直接运行 Node.js 时不会自动加载 `.env`，需要由当前 shell、进程管理器或容器注入变量。Windows 用户可优先使用 `start-contractguard.bat`，避免把 Key 写进命令历史。
+API 服务使用 `CONTRACTGUARD_POLICY_CONFIG=./config/rule-policy.local.json`。新生成的结果和导出报告会记录规范化策略、baseline 与 candidate 的 SHA-256 指纹；1.0.x 写入的旧历史可能没有这些可选字段。详见[规则策略与输入指纹](docs/rule-policy.md)。
+
+## 可选：启用多 LLM 解读
+
+AI 解读不是核心分析的前置条件。V1.1 内置 DeepSeek、OpenAI、Gemini 与 Ollama 样例，也允许管理员为符合已审计 OpenAI-compatible Chat 契约的服务定义安全 provider 标识。先复制配置样例，并用 `activeProfile` 选择默认档案：
+
+```powershell
+Copy-Item config/llm-providers.example.json config/llm-providers.local.json
+$env:CONTRACTGUARD_LLM_CONFIG = './config/llm-providers.local.json'
+$env:DEEPSEEK_API_KEY = '<YOUR_DEEPSEEK_API_KEY>'
+pnpm start
+```
+
+在副本中只启用实际允许使用的档案，并替换模型占位符。`allowRequestProfileOverride` 决定 Web/API 是否可以选择另一个已启用档案；设为 `false` 时，所有调用都使用 `activeProfile`。浏览器只能提交档案 ID，不能提交任意 URL、模型名、请求头或密钥。
+
+每个档案还要声明端点的请求能力。对于不接受旧 `max_tokens` 的 OpenAI 模型，应使用 `tokenLimitParameter: "max_completion_tokens"`；仓库样例已经展示这一差异。
+
+真实密钥不能写入 JSON。Bearer 档案只保存 `secretEnv` 名称，例如 `OPENAI_API_KEY`；对应值应由服务端进程环境注入。完整字段见 [`config/llm-providers.example.json`](config/llm-providers.example.json)及其严格的 [`JSON Schema`](config/llm-providers.schema.json)，环境变量模板见 [`.env.example`](.env.example)。未设置 `CONTRACTGUARD_LLM_CONFIG` 时，旧版 `CONTRACTGUARD_AI_ENABLED` 与 `DEEPSEEK_*` 变量仍作为 DeepSeek-only 兼容模式工作。
 
 数据与决策边界：
 
@@ -170,7 +196,7 @@ CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS=8192
 - 模型响应必须通过运行时结构校验；
 - AI 输出不能改变规则等级、兼容性得分、`compatible` 值或 CI 退出码。
 
-完整的 PowerShell、bash、Docker、状态检查和 API 调用示例见 [`docs/ai-report-interpreter.md`](docs/ai-report-interpreter.md)。调用云端模型可能产生费用；启用前请确认组织的数据与隐私政策。
+完整的档案格式、PowerShell、bash、Docker、状态检查和 API 调用示例见 [`docs/ai-report-interpreter.md`](docs/ai-report-interpreter.md)。调用云端模型可能产生费用；启用前应分别核对所选服务当前的数据政策、条款和价格。本文不写死可能变化的模型清单或价格。
 
 ## Docker
 
@@ -188,8 +214,9 @@ docker compose up --build
 | PowerShell 禁止运行 `pnpm.ps1` | 将命令改为 `pnpm.cmd`，无需修改系统执行策略 |
 | 页面显示“分析引擎离线” | 确认 API 正在 `8080` 端口运行；开发模式需同时保留 `pnpm dev` 启动的两个进程 |
 | CLI 返回退出码 `2` | 这是达到 `--fail-on` 风险阈值的预期门禁结果，不代表程序崩溃 |
-| AI 显示未启用或未配置 | 同时设置 `CONTRACTGUARD_AI_ENABLED=true` 和 `DEEPSEEK_API_KEY`，然后重启 API 进程 |
-| AI 返回无效或截断的 JSON | 重试；若持续出现，调高 `CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS` 或降低 `CONTRACTGUARD_AI_MAX_CHANGES` |
+| AI 显示未启用或未配置 | 检查 `CONTRACTGUARD_LLM_CONFIG`、顶层与活动档案的 `enabled`、`activeProfile` 以及该档案的 `secretEnv`；旧模式仍检查 `CONTRACTGUARD_AI_ENABLED` 与 `DEEPSEEK_API_KEY` |
+| 目标模型无法选择 | 在服务端 JSON 中启用该档案，设置 `allowRequestProfileOverride: true`，注入所需环境变量后重启 API |
+| AI 返回参数不支持、无效或截断的 JSON | 检查 `structuredOutput` 与 `tokenLimitParameter` 是否符合端点能力；重试后仍失败，可提高 `defaults.maxOutputTokens` 或降低 `defaults.maxChanges` |
 
 更完整的运行问题见 [用户指南的故障排查](docs/user-guide.md#11-故障排查)和 [AI 错误说明](docs/ai-report-interpreter.md#10-错误与降级)。
 
@@ -206,22 +233,23 @@ flowchart LR
     S --> C[CLI / CI gate]
     S --> E[JSON / Markdown / HTML]
     S --> M[Bounded finding context]
-    M --> AI[Optional DeepSeek explanation]
+    M --> AI[Optional selected LLM explanation]
 ```
 
-同一套核心引擎由 Web、REST API 与 CLI 复用。DeepSeek 位于单独的解释支路；模型不可用时，分析、门禁和报告导出仍可正常工作。
+同一套核心引擎由 Web、REST API 与 CLI 复用。用户选择的 LLM 档案位于独立解释支路；所有模型均不可用时，分析、门禁和报告导出仍可正常工作。
 
 ## 工程结构
 
 ```text
 apps/
-  api/       REST API、本地持久化、报告导出、DeepSeek 适配器
+  api/       REST API、本地持久化、报告导出与多 LLM 适配器注册表
   cli/       本地与 CI 命令行入口
   web/       Vue 3 Web 工作台
 packages/
   core/      OpenAPI 解析、本地引用解析、兼容性规则与评分
 fixtures/    可复现的兼容/不兼容样例与评估清单
 examples/    GitHub Actions 与 AI 请求示例
+config/      规则策略与 LLM 档案的严格 JSON Schema 和样例
 docs/        架构、规则、API、使用、开发、评估和验证文档
 scripts/     端到端冒烟测试
 ```
@@ -254,8 +282,9 @@ ContractGuard 重点支持 OpenAPI 3.0/3.1 与同一文档内的 JSON Pointer `$
 - [用户指南](docs/user-guide.md)
 - [系统架构](docs/architecture.md)
 - [兼容性规则与判定方向](docs/compatibility-rules.md)
+- [规则策略、评分与输入指纹](docs/rule-policy.md)
 - [REST API](docs/api-reference.md)
-- [DeepSeek AI 报告解释器](docs/ai-report-interpreter.md)
+- [多 LLM AI 报告解释器](docs/ai-report-interpreter.md)
 - [开发与扩展规则](docs/development.md)
 - [评估方法与结果](docs/evaluation.md)
 - [验证记录](docs/verification.md)

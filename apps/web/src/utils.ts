@@ -1,6 +1,7 @@
 import type {
   AiKeyRisk,
   AiMigrationStep,
+  AiProviderStatus,
   AiReportOverview,
   AiReviewReport,
   AiRiskLevel,
@@ -159,15 +160,68 @@ export function normalizeRules(value: unknown): RuleDefinition[] {
 export function normalizeAiStatus(value: unknown): AiServiceStatus {
   const outer = objectValue(value)
   const item = objectValue(outer.status ?? outer.ai ?? value)
+  const rawProviders = Array.isArray(item.providers) ? item.providers : []
+  const providers = rawProviders
+    .map((value): AiProviderStatus | null => {
+      const provider = objectValue(value)
+      const id = stringValue(provider.id, stringValue(provider.providerId)).trim()
+      if (!id) return null
+      const providerName = stringValue(provider.provider, id)
+      return {
+        id,
+        displayName: stringValue(
+          provider.displayName,
+          stringValue(provider.label, providerName),
+        ),
+        provider: providerName,
+        model: stringValue(provider.model),
+        enabled: provider.enabled !== false,
+        configured: provider.configured === true,
+        available: provider.available === true,
+        local: typeof provider.local === 'boolean' ? provider.local : undefined,
+        reason: stringValue(provider.reason) || undefined,
+      }
+    })
+    .filter((provider): provider is AiProviderStatus => provider !== null)
+  const fallbackProvider = stringValue(item.provider, 'ai')
+  const defaultProviderId = stringValue(
+    item.defaultProviderId,
+    stringValue(item.activeProviderId, stringValue(item.activeProfile, stringValue(item.providerId))),
+  ) || undefined
+  const activeProviderId =
+    stringValue(item.activeProviderId, stringValue(item.activeProfile, defaultProviderId)) || undefined
 
   return {
     enabled: item.enabled === true,
     configured: item.configured === true,
     available: item.available === true,
-    provider: 'deepseek',
-    model: stringValue(item.model, 'DeepSeek'),
+    provider: fallbackProvider,
+    model: stringValue(item.model),
     reason: stringValue(item.reason) || undefined,
+    activeProviderId,
+    defaultProviderId,
+    allowRequestProviderOverride:
+      item.allowRequestProviderOverride === true || item.allowRequestProfileOverride === true,
+    providers,
+    promptVersion: stringValue(item.promptVersion) || undefined,
   }
+}
+
+/**
+ * Return only profiles the browser is allowed to request. When server-side
+ * profile override is disabled, another configured profile must not become an
+ * implicit fallback for an unavailable active profile.
+ */
+export function selectableAiProviders(status: AiServiceStatus): AiProviderStatus[] {
+  const available = status.providers.filter(
+    (provider) => provider.enabled && provider.configured && provider.available,
+  )
+  if (status.allowRequestProviderOverride) return available
+
+  const activeProviderId = status.activeProviderId ?? status.defaultProviderId
+  return activeProviderId === undefined
+    ? []
+    : available.filter((provider) => provider.id === activeProviderId)
 }
 
 function normalizeAiOverview(value: unknown): AiReportOverview {
@@ -238,8 +292,11 @@ export function normalizeAiReview(value: unknown): AiReviewReport {
   return {
     schemaVersion: '1.0',
     analysisId: stringValue(item.analysisId),
-    provider: 'deepseek',
-    model: stringValue(item.model, 'DeepSeek'),
+    provider: stringValue(item.provider, 'ai'),
+    providerId: stringValue(item.providerId) || undefined,
+    providerLabel:
+      stringValue(item.providerLabel, stringValue(item.displayName, stringValue(item.label))) || undefined,
+    model: stringValue(item.model),
     generatedAt: stringValue(item.generatedAt, new Date().toISOString()),
     promptVersion: stringValue(item.promptVersion, 'unknown'),
     overview: normalizeAiOverview(item.overview),

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "team-api-policy",
+  "rules": {
+    "OPERATION_ID_CHANGED": {
+      "severity": "info"
+    },
+    "METADATA_CHANGED": {
+      "enabled": false
+    },
+    "SCHEMA_UNSUPPORTED_KEYWORD_CHANGED": {
+      "severity": "breaking"
+    }
+  },
+  "scoring": {
+    "breaking": 12,
+    "potentially-breaking": 4,
+    "non-breaking": 0,
+    "info": 0
+  }
+}

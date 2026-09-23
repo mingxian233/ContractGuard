@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import request from 'supertest';
 import { ENGINE_VERSION } from '@contractguard/core';
 import { createApp } from './app.js';
+import { AiConfigurationError, parseAiConfiguration, type AiRuntimeConfig } from './ai/config.js';
+import { createMultiProviderAiService } from './ai/service.js';
 
 const baseline = {
   openapi: '3.1.0',
@@ -38,6 +40,64 @@ const minimalAiReview = {
   caveats: ['该说明不替代人工评审。'],
 };
 
+function multiProviderConfig(overrides: Partial<AiRuntimeConfig> = {}): AiRuntimeConfig {
+  return {
+    schemaVersion: 1,
+    enabled: true,
+    activeProfile: 'deepseek-cloud',
+    allowRequestProfileOverride: true,
+    defaults: {
+      timeoutMs: 30_000,
+      maxChanges: 50,
+      maxOutputTokens: 8_192,
+      maxResponseBytes: 128 * 1024,
+    },
+    profiles: [
+      {
+        id: 'deepseek-cloud',
+        enabled: true,
+        displayName: 'DeepSeek Cloud',
+        provider: 'deepseek',
+        adapter: 'openai-chat',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-flash',
+        auth: { type: 'bearer', secretEnv: 'TEST_DEEPSEEK_API_KEY' },
+        capabilities: { structuredOutput: 'json-object', thinkingControl: 'disabled' },
+        dataBoundary: 'deepseek-cloud',
+      },
+      {
+        id: 'openai-cloud',
+        enabled: true,
+        displayName: 'OpenAI Cloud',
+        provider: 'openai',
+        adapter: 'openai-chat',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'test-openai-model',
+        auth: { type: 'bearer', secretEnv: 'TEST_OPENAI_API_KEY' },
+        capabilities: {
+          structuredOutput: 'json-schema',
+          thinkingControl: 'none',
+          tokenLimitParameter: 'max_completion_tokens',
+        },
+        dataBoundary: 'openai-cloud',
+      },
+      {
+        id: 'ollama-local',
+        enabled: true,
+        displayName: 'Ollama Local',
+        provider: 'ollama',
+        adapter: 'openai-chat',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        model: 'qwen-test',
+        auth: { type: 'none' },
+        capabilities: { structuredOutput: 'prompt-only', thinkingControl: 'none' },
+        dataBoundary: 'local',
+      },
+    ],
+    ...overrides,
+  };
+}
+
 describe('ContractGuard API', () => {
   let directory: string;
 
@@ -66,14 +126,24 @@ describe('ContractGuard API', () => {
       aiConfig: { apiKey: secret },
     });
     const response = await request(app).get('/api/ai/status').expect(200);
-    assert.deepEqual(response.body, {
-      enabled: false,
-      configured: true,
-      available: false,
+    assert.equal(response.body.enabled, false);
+    assert.equal(response.body.configured, true);
+    assert.equal(response.body.available, false);
+    assert.equal(response.body.provider, 'deepseek');
+    assert.equal(response.body.activeProfile, 'deepseek');
+    assert.equal(response.body.defaultProviderId, 'deepseek');
+    assert.equal(response.body.allowRequestProfileOverride, false);
+    assert.deepEqual(response.body.providers, [{
+      id: 'deepseek',
+      label: 'DeepSeek',
+      displayName: 'DeepSeek',
       provider: 'deepseek',
       model: 'deepseek-flash',
-      promptVersion: 'ai-explainer-v1',
-    });
+      enabled: true,
+      configured: true,
+      available: false,
+      local: false,
+    }]);
     assert.doesNotMatch(JSON.stringify(response.body), new RegExp(secret));
   });
 
@@ -103,6 +173,27 @@ describe('ContractGuard API', () => {
     await request(app).get(`/api/analyses/${id}/report?format=markdown`).expect(200).expect('Content-Type', /markdown/);
     await request(app).delete(`/api/analyses/${id}`).expect(204);
     await request(app).get(`/api/analyses/${id}`).expect(404);
+  });
+
+  it('loads and applies a validated rule policy from CONTRACTGUARD_POLICY_CONFIG', async () => {
+    const policyPath = join(directory, 'rule-policy.json');
+    await writeFile(policyPath, JSON.stringify({
+      schemaVersion: 1,
+      id: 'api-test-policy',
+      rules: { PATH_REMOVED: { enabled: false } },
+    }), 'utf8');
+    const previous = process.env.CONTRACTGUARD_POLICY_CONFIG;
+    process.env.CONTRACTGUARD_POLICY_CONFIG = policyPath;
+    let app;
+    try {
+      app = createApp({ dataDirectory: directory, serveWeb: false });
+    } finally {
+      if (previous === undefined) delete process.env.CONTRACTGUARD_POLICY_CONFIG;
+      else process.env.CONTRACTGUARD_POLICY_CONFIG = previous;
+    }
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    assert.equal(created.body.policy.id, 'api-test-policy');
+    assert.equal(created.body.changes.some((change: { ruleId: string }) => change.ruleId === 'PATH_REMOVED'), false);
   });
 
   it('returns structured validation errors', async () => {
@@ -144,6 +235,202 @@ describe('ContractGuard API', () => {
     const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
     const response = await request(app).post(`/api/analyses/${created.body.id as string}/ai-review`).expect(503);
     assert.equal(response.body.error.code, 'AI_NOT_CONFIGURED');
+  });
+
+  it('strictly validates LLM configuration and permits HTTP only for loopback profiles', () => {
+    const valid = parseAiConfiguration({
+      schemaVersion: 1,
+      enabled: true,
+      activeProfile: 'local',
+      allowRequestProfileOverride: true,
+      defaults: { timeoutMs: 30_000, maxChanges: 50, maxOutputTokens: 8_192, maxResponseBytes: 131_072 },
+      profiles: {
+        local: {
+          enabled: true,
+          displayName: 'Local',
+          provider: 'lm-studio',
+          adapter: 'openai-chat',
+          baseUrl: 'http://127.0.0.1:11434/v1',
+          model: 'qwen-test',
+          auth: { type: 'none' },
+          capabilities: { structuredOutput: 'prompt-only', thinkingControl: 'none' },
+          dataBoundary: 'local',
+        },
+      },
+    });
+    assert.equal(valid.profiles[0]?.baseUrl, 'http://127.0.0.1:11434/v1');
+    assert.equal(valid.profiles[0]?.provider, 'lm-studio');
+
+    const serialized = JSON.parse(JSON.stringify({
+      schemaVersion: 1,
+      enabled: true,
+      activeProfile: 'remote',
+      allowRequestProfileOverride: true,
+      defaults: { timeoutMs: 30_000, maxChanges: 50, maxOutputTokens: 8_192, maxResponseBytes: 131_072 },
+      profiles: {
+        remote: {
+          enabled: true,
+          displayName: 'Remote',
+          provider: 'openai',
+          adapter: 'openai-chat',
+          baseUrl: 'http://api.example.com/v1',
+          model: 'model',
+          auth: { type: 'bearer', secretEnv: 'REMOTE_API_KEY' },
+          capabilities: { structuredOutput: 'json-schema', thinkingControl: 'none' },
+          dataBoundary: 'remote',
+          apiKey: 'must-never-be-accepted',
+        },
+      },
+    })) as unknown;
+    assert.throws(() => parseAiConfiguration(serialized), AiConfigurationError);
+    const remote = serialized as { profiles: { remote: Record<string, unknown> } };
+    delete remote.profiles.remote.apiKey;
+    assert.throws(() => parseAiConfiguration(remote), /HTTP is allowed only/i);
+    remote.profiles.remote.baseUrl = 'https://10.0.0.1/v1';
+    assert.throws(() => parseAiConfiguration(remote), /IP literal/i);
+    remote.profiles.remote.baseUrl = 'https://api.openrouter.example/v1';
+    remote.profiles.remote.provider = 'openrouter';
+    assert.equal(parseAiConfiguration(remote).profiles[0]?.provider, 'openrouter');
+  });
+
+  it('loads a server-owned multi-provider JSON file and returns only redacted profile metadata', async () => {
+    const configPath = join(directory, 'llm-providers.json');
+    await writeFile(configPath, JSON.stringify({
+      schemaVersion: 1,
+      enabled: true,
+      activeProfile: 'openai-cloud',
+      allowRequestProfileOverride: true,
+      defaults: { timeoutMs: 30_000, maxChanges: 50, maxOutputTokens: 8_192, maxResponseBytes: 131_072 },
+      profiles: {
+        'openai-cloud': {
+          enabled: true,
+          displayName: 'OpenAI Cloud',
+          provider: 'openai',
+          adapter: 'openai-chat',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'test-model',
+          auth: { type: 'bearer', secretEnv: 'OPENAI_TEST_SECRET' },
+          capabilities: { structuredOutput: 'json-schema', thinkingControl: 'none' },
+          dataBoundary: 'openai-cloud',
+        },
+      },
+    }), 'utf8');
+    const secret = 'never-return-profile-secret';
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiConfigPath: configPath,
+      aiEnvironment: { OPENAI_TEST_SECRET: secret },
+    });
+    const status = await request(app).get('/api/ai/status').expect(200);
+    assert.equal(status.body.activeProfile, 'openai-cloud');
+    assert.equal(status.body.providers[0].configured, true);
+    assert.equal(status.body.providers[0].available, true);
+    assert.doesNotMatch(JSON.stringify(status.body), /never-return-profile-secret|api\.openai\.com|OPENAI_TEST_SECRET/);
+  });
+
+  it('selects only configured profiles and adapts structured output without accepting client URLs or models', async () => {
+    const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    const fakeFetch: typeof fetch = async (input, init) => {
+      calls.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+      });
+      return new Response(JSON.stringify({
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(minimalAiReview) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiRuntimeConfig: multiProviderConfig(),
+      aiEnvironment: {
+        TEST_DEEPSEEK_API_KEY: 'deepseek-test-secret',
+        TEST_OPENAI_API_KEY: 'openai-test-secret',
+      },
+      aiFetch: fakeFetch,
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const id = created.body.id as string;
+
+    const openai = await request(app)
+      .post(`/api/analyses/${id}/ai-review`)
+      .send({ providerId: 'openai-cloud', language: 'en' })
+      .expect(200);
+    assert.equal(openai.body.provider, 'openai');
+    assert.equal(openai.body.providerId, 'openai-cloud');
+    assert.equal(openai.body.providerLabel, 'OpenAI Cloud');
+    assert.equal(calls[0]?.url, 'https://api.openai.com/v1/chat/completions');
+    assert.equal(calls[0]?.headers.get('authorization'), 'Bearer openai-test-secret');
+    assert.equal((calls[0]?.body.response_format as { type: string }).type, 'json_schema');
+    const responseFormat = calls[0]?.body.response_format as {
+      json_schema: { strict: boolean; schema: Record<string, unknown> };
+    };
+    assert.equal(responseFormat.json_schema.strict, true);
+    assert.equal(responseFormat.json_schema.schema.additionalProperties, false);
+    assert.doesNotMatch(
+      JSON.stringify(responseFormat.json_schema.schema),
+      /maxLength|minLength|maxItems|minimum|maximum/,
+    );
+    assert.equal(calls[0]?.body.max_completion_tokens, 8_192);
+    assert.equal(calls[0]?.body.max_tokens, undefined);
+    assert.equal(calls[0]?.body.thinking, undefined);
+
+    const ollama = await request(app)
+      .post(`/api/analyses/${id}/ai-review`)
+      .send({ providerId: 'ollama-local' })
+      .expect(200);
+    assert.equal(ollama.body.provider, 'ollama');
+    assert.equal(calls[1]?.url, 'http://127.0.0.1:11434/v1/chat/completions');
+    assert.equal(calls[1]?.headers.get('authorization'), null);
+    assert.equal(calls[1]?.body.max_tokens, 8_192);
+    assert.equal(calls[1]?.body.max_completion_tokens, undefined);
+    assert.equal(calls[1]?.body.response_format, undefined);
+    assert.equal(calls[1]?.body.thinking, undefined);
+
+    const unknown = await request(app)
+      .post(`/api/analyses/${id}/ai-review`)
+      .send({ providerId: 'attacker-profile' })
+      .expect(400);
+    assert.equal(unknown.body.error.code, 'AI_PROVIDER_NOT_FOUND');
+    await request(app)
+      .post(`/api/analyses/${id}/ai-review`)
+      .send({ providerId: 'openai-cloud', baseUrl: 'https://attacker.example', model: 'attacker-model' })
+      .expect(400);
+    assert.equal(calls.length, 2);
+  });
+
+  it('does not permit profile override or silently fall back to another provider', async () => {
+    let calls = 0;
+    const failedFetch: typeof fetch = async () => {
+      calls += 1;
+      return new Response('unavailable', { status: 503 });
+    };
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiRuntimeConfig: multiProviderConfig({ allowRequestProfileOverride: false }),
+      aiEnvironment: {
+        TEST_DEEPSEEK_API_KEY: 'deepseek-test-secret',
+        TEST_OPENAI_API_KEY: 'openai-test-secret',
+      },
+      aiFetch: failedFetch,
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const blocked = await request(app)
+      .post(`/api/analyses/${created.body.id as string}/ai-review`)
+      .send({ providerId: 'openai-cloud' })
+      .expect(400);
+    assert.equal(blocked.body.error.code, 'AI_PROVIDER_OVERRIDE_DISABLED');
+    assert.equal(calls, 0);
+
+    const failed = await request(app)
+      .post(`/api/analyses/${created.body.id as string}/ai-review`)
+      .send({})
+      .expect(502);
+    assert.equal(failed.body.error.code, 'AI_UPSTREAM_ERROR');
+    assert.equal(calls, 1);
   });
 
   it('generates and validates a DeepSeek explanation without sending raw specifications', async () => {
@@ -491,6 +778,90 @@ describe('ContractGuard API', () => {
     const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
     const response = await request(app).post(`/api/analyses/${created.body.id as string}/ai-review`).send({}).expect(504);
     assert.equal(response.body.error.code, 'AI_UPSTREAM_TIMEOUT');
+  });
+
+  it('propagates caller cancellation to the upstream LLM request', async () => {
+    let notifyStarted!: () => void;
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    let upstreamAborted = false;
+    const hangingFetch: typeof fetch = async (_input, init) => new Promise<Response>((_resolve, reject) => {
+      notifyStarted();
+      const abort = (): void => {
+        upstreamAborted = true;
+        reject(new DOMException('aborted', 'AbortError'));
+      };
+      if (init?.signal?.aborted) abort();
+      else init?.signal?.addEventListener('abort', abort, { once: true });
+    });
+    const analysisApp = createApp({ dataDirectory: directory, serveWeb: false });
+    const created = await request(analysisApp).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const service = createMultiProviderAiService({
+      config: multiProviderConfig(),
+      environment: { TEST_DEEPSEEK_API_KEY: 'test-key' },
+      fetch: hangingFetch,
+    });
+    const controller = new AbortController();
+    const pending = service.review(
+      created.body,
+      { language: 'zh-CN' },
+      { signal: controller.signal },
+    );
+    await started;
+    controller.abort();
+    await assert.rejects(pending, (error: unknown) => {
+      assert.equal((error as { code?: string }).code, 'AI_REQUEST_CANCELLED');
+      assert.equal((error as { status?: number }).status, 499);
+      return true;
+    });
+    assert.equal(upstreamAborted, true);
+  });
+
+  it('cancels the upstream LLM request when the HTTP client disconnects', async () => {
+    let notifyStarted!: () => void;
+    let notifyAborted!: () => void;
+    const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
+    const aborted = new Promise<void>((resolve) => { notifyAborted = resolve; });
+    const hangingFetch: typeof fetch = async (_input, init) => new Promise<Response>((_resolve, reject) => {
+      notifyStarted();
+      const abort = (): void => {
+        notifyAborted();
+        reject(new DOMException('aborted', 'AbortError'));
+      };
+      if (init?.signal?.aborted) abort();
+      else init?.signal?.addEventListener('abort', abort, { once: true });
+    });
+    const app = createApp({
+      dataDirectory: directory,
+      serveWeb: false,
+      aiRuntimeConfig: multiProviderConfig(),
+      aiEnvironment: { TEST_DEEPSEEK_API_KEY: 'test-key' },
+      aiFetch: hangingFetch,
+    });
+    const created = await request(app).post('/api/analyses').send({ baseline, candidate }).expect(201);
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('listening', resolve);
+        server.once('error', reject);
+      });
+      const address = server.address();
+      if (address === null || typeof address === 'string') throw new Error('Could not determine test server port.');
+      const controller = new AbortController();
+      const pending = fetch(`http://127.0.0.1:${address.port}/api/analyses/${created.body.id as string}/ai-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+        signal: controller.signal,
+      });
+      await started;
+      controller.abort();
+      await assert.rejects(pending, (error: unknown) => (error as { name?: string }).name === 'AbortError');
+      await aborted;
+    } finally {
+      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+      server.closeAllConnections();
+      await closed;
+    }
   });
 
   it('validates AI review input and requires a saved analysis', async () => {

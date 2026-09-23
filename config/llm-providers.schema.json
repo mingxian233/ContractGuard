@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mingxian233/ContractGuard/raw/main/config/llm-providers.schema.json",
+  "title": "ContractGuard LLM provider configuration",
+  "description": "Server-owned provider profiles. API secrets are referenced by environment-variable name and must never be stored in this document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "enabled",
+    "activeProfile",
+    "allowRequestProfileOverride",
+    "defaults",
+    "profiles"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "activeProfile": {
+      "$ref": "#/$defs/profileId"
+    },
+    "allowRequestProfileOverride": {
+      "type": "boolean"
+    },
+    "defaults": {
+      "$ref": "#/$defs/defaults"
+    },
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 32,
+      "propertyNames": {
+        "$ref": "#/$defs/profileId"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/profile"
+      }
+    }
+  },
+  "$defs": {
+    "profileId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeoutMs",
+        "maxChanges",
+        "maxOutputTokens",
+        "maxResponseBytes"
+      ],
+      "properties": {
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000
+        },
+        "maxChanges": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 512,
+          "maximum": 32768
+        },
+        "maxResponseBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1048576
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "displayName",
+        "provider",
+        "adapter",
+        "baseUrl",
+        "model",
+        "auth",
+        "capabilities",
+        "dataBoundary"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": ["dataBoundary"],
+            "properties": {
+              "dataBoundary": { "const": "local" }
+            }
+          },
+          "then": {
+            "properties": {
+              "baseUrl": {
+                "pattern": "^https?://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?(?:/|$)"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "baseUrl": {
+                "pattern": "^https://"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["baseUrl"],
+            "properties": {
+              "baseUrl": {
+                "pattern": "^https?://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?(?:/|$)"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dataBoundary": { "const": "local" }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "provider": {
+          "$ref": "#/$defs/profileId"
+        },
+        "adapter": {
+          "const": "openai-chat"
+        },
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Runtime validation additionally rejects credentials, queries, fragments, IP-literal cloud hosts, .local/.localhost cloud hosts, and non-loopback HTTP. Every loopback profile must use dataBoundary=local, and every dataBoundary=local profile must use loopback; the provider identifier may represent Ollama, LM Studio, LocalAI, or another audited local endpoint.",
+          "format": "uri",
+          "pattern": "^(?:https://|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?(?:/|$))",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "^https?://[^/?#]*@"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[?#]"
+              }
+            }
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "auth": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "secretEnv"],
+              "properties": {
+                "type": {
+                  "const": "bearer"
+                },
+                "secretEnv": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100,
+                  "pattern": "^[A-Z_][A-Z0-9_]*$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "properties": {
+                "type": {
+                  "const": "none"
+                }
+              }
+            }
+          ]
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["structuredOutput", "thinkingControl"],
+          "properties": {
+            "structuredOutput": {
+              "enum": ["json-schema", "json-object", "prompt-only"]
+            },
+            "thinkingControl": {
+              "enum": ["disabled", "none"]
+            },
+            "tokenLimitParameter": {
+              "description": "Optional output-token limit field used by the selected Chat Completions implementation. Omission defaults to max_tokens for backwards compatibility.",
+              "enum": ["max_tokens", "max_completion_tokens", "none"]
+            }
+          }
+        },
+        "dataBoundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      }
+    }
+  }
+}

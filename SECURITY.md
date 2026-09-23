@@ -22,13 +22,13 @@ ContractGuard has three distinct data paths:
 
 1. **Deterministic analysis:** baseline and candidate documents are parsed by the local API process and are not sent to a ContractGuard-operated cloud service.
 2. **Local persistence:** completed analyses are written as JSON files under `CONTRACTGUARD_DATA_DIR` (default `./data/analyses`). These records can include endpoint names and before/after evidence.
-3. **Optional DeepSeek review:** only after an explicit AI review request, the API server sends bounded finding summaries to the configured DeepSeek-compatible endpoint.
+3. **Optional LLM review:** only after an explicit AI review request, the API server sends bounded finding summaries to the selected administrator-configured model profile.
 
 The application does not include authentication, authorization, tenant isolation, encryption at rest, TLS termination, request quotas, or audit logging. Any process or network client that can reach the API may be able to create, read, export, or delete analysis records. CORS settings limit browser origins; **CORS is not access control**.
 
 ## Credential handling
 
-Deterministic compatibility analysis requires no cloud credential. The optional AI integration reads `DEEPSEEK_API_KEY` from the API server process environment.
+Deterministic compatibility analysis requires no cloud credential. Optional AI profiles resolve credentials only from the server process environment named by `auth.secretEnv`; credentials never belong in the provider JSON or browser.
 
 - Never commit a populated `.env` file.
 - Never put a key in browser code, an OpenAPI document, an API request body, a test fixture, an issue, or a screenshot.
@@ -97,7 +97,7 @@ Keep `HOST=127.0.0.1` for local use. Binding to `0.0.0.0`, changing the Compose 
 - Install the locked dependency graph with `pnpm install --frozen-lockfile`.
 - Review automated dependency updates and CI results before merging.
 - Use only the expected Node.js and pnpm versions documented in the repository.
-- Keep DeepSeek base URLs and proxy configuration under administrator control; do not accept arbitrary upstream URLs from end users.
+- Keep every LLM base URL and proxy configuration under administrator control; browsers may select only an enabled profile ID and must never supply an arbitrary URL, model, header, or credential.
 - Treat imported OpenAPI documents and exported HTML/Markdown as untrusted data when integrating them into other systems.
 
 ## Explicit non-goals

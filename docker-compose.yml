@@ -9,6 +9,13 @@ services:
       PORT: 8080
       HOST: 0.0.0.0
       CONTRACTGUARD_DATA_DIR: /app/data/analyses
+      CONTRACTGUARD_POLICY_CONFIG: ${CONTRACTGUARD_POLICY_CONFIG:-}
+      # Preferred V1.1 mode. Paths such as ./config/foo.json resolve under /app,
+      # where the read-only config directory below is mounted.
+      CONTRACTGUARD_LLM_CONFIG: ${CONTRACTGUARD_LLM_CONFIG:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Legacy DeepSeek-only fallback when CONTRACTGUARD_LLM_CONFIG is empty.
       CONTRACTGUARD_AI_ENABLED: ${CONTRACTGUARD_AI_ENABLED:-false}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
@@ -16,8 +23,11 @@ services:
       CONTRACTGUARD_AI_TIMEOUT_MS: ${CONTRACTGUARD_AI_TIMEOUT_MS:-30000}
       CONTRACTGUARD_AI_MAX_CHANGES: ${CONTRACTGUARD_AI_MAX_CHANGES:-50}
       CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS: ${CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS:-8192}
+      CONTRACTGUARD_AI_MAX_RESPONSE_BYTES: ${CONTRACTGUARD_AI_MAX_RESPONSE_BYTES:-131072}
     volumes:
       - contractguard-data:/app/data/analyses
+      # Contains optional LLM and rule-policy JSON files; keys remain environment variables.
+      - ./config:/app/config:ro
     restart: unless-stopped
 
 volumes:

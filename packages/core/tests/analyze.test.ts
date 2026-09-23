@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { analyzeCompatibility, ruleCatalog } from "../src/index.js";
+import { analyzeCompatibility, ContractGuardError, ruleCatalog } from "../src/index.js";
 
 type AnyDocument = Record<string, any>;
 
@@ -48,13 +48,22 @@ describe("analyzeCompatibility", () => {
     const spec = document(operation());
     const result = analyzeCompatibility(spec, structuredClone(spec), { generatedAt: fixedTime });
     expect(result).toMatchObject({
-      engineVersion: "1.0.1",
+      engineVersion: "1.1.0",
       generatedAt: fixedTime,
       score: 100,
       compatible: true,
       summary: { total: 0, breaking: 0, potentiallyBreaking: 0, nonBreaking: 0, info: 0 },
     });
-    expect(result.source.old).toEqual({ openapi: "3.1.0", title: "Example API", version: "1.0.0" });
+    expect(result.source.old).toMatchObject({
+      openapi: "3.1.0",
+      title: "Example API",
+      version: "1.0.0",
+      fingerprint: { algorithm: "sha256", value: expect.stringMatching(/^[a-f0-9]{64}$/) },
+    });
+    expect(result.policy).toMatchObject({
+      id: "contractguard-default",
+      fingerprint: { algorithm: "sha256", value: expect.stringMatching(/^[a-f0-9]{64}$/) },
+    });
   });
 
   it("detects path and operation additions/removals", () => {
@@ -515,6 +524,91 @@ describe("analyzeCompatibility", () => {
     const result = analyzeCompatibility(makeSpec(["value"]), makeSpec([]), { generatedAt: fixedTime });
     expect(rules(result)).toContain("SCHEMA_REQUIRED_PROPERTY_REMOVED");
     expect(result.changes.length).toBeLessThan(10);
+  });
+
+  it("records deterministic input and policy fingerprints", () => {
+    const left = document(operation());
+    const first = analyzeCompatibility(left, structuredClone(left), { generatedAt: fixedTime });
+    const reordered = { paths: left.paths, info: left.info, openapi: left.openapi };
+    const second = analyzeCompatibility(reordered, structuredClone(reordered), { generatedAt: fixedTime });
+
+    expect(first.source.old.fingerprint).toEqual(second.source.old.fingerprint);
+    expect(first.source.old.fingerprint?.value).toHaveLength(64);
+    expect(first.policy?.fingerprint.value).toHaveLength(64);
+  });
+
+  it("applies an auditable rule policy to suppression, severity, and scoring", () => {
+    const oldSpec = document(operation());
+    const newSpec = document(operation(), {
+      paths: {
+        "/pets": { get: operation(), post: operation({ operationId: "createPet" }) },
+        "/health": { get: operation({ operationId: "health" }) },
+      },
+    });
+    const result = analyzeCompatibility(oldSpec, newSpec, {
+      generatedAt: fixedTime,
+      policy: {
+        schemaVersion: 1,
+        id: "release-policy",
+        rules: {
+          PATH_ADDED: { severity: "breaking" },
+          OPERATION_ADDED: { enabled: false },
+        },
+        scoring: { breaking: 25 },
+      },
+    });
+
+    expect(result.policy?.id).toBe("release-policy");
+    expect(result.changes).toEqual([
+      expect.objectContaining({ ruleId: "PATH_ADDED", severity: "breaking" }),
+    ]);
+    expect(result.score).toBe(75);
+    expect(result.compatible).toBe(false);
+  });
+
+  it("rejects unknown rules in a policy instead of silently ignoring them", () => {
+    expect(() => analyzeCompatibility(document(operation()), document(operation()), {
+      policy: {
+        schemaVersion: 1,
+        rules: { NOT_A_RULE: { enabled: false } },
+      },
+    })).toThrowError(ContractGuardError);
+    try {
+      analyzeCompatibility(document(operation()), document(operation()), {
+        policy: { schemaVersion: 1, rules: { NOT_A_RULE: { enabled: false } } },
+      });
+    } catch (error) {
+      expect(error).toMatchObject({ code: "INVALID_POLICY" });
+    }
+  });
+
+  it("rejects circular object inputs with a structured document error", () => {
+    const cyclic = document(operation()) as Record<string, unknown>;
+    cyclic["x-cycle"] = cyclic;
+    try {
+      analyzeCompatibility(cyclic, document(operation()));
+      throw new Error("Expected circular input to be rejected.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContractGuardError);
+      expect(error).toMatchObject({ code: "INVALID_DOCUMENT" });
+    }
+  });
+
+  it("rejects excessively deep object inputs before recursive hashing can overflow", () => {
+    const deeplyNested = document(operation()) as Record<string, unknown>;
+    let cursor = deeplyNested;
+    for (let depth = 0; depth < 300; depth += 1) {
+      const child: Record<string, unknown> = {};
+      cursor["x-nested"] = child;
+      cursor = child;
+    }
+    try {
+      analyzeCompatibility(deeplyNested, document(operation()));
+      throw new Error("Expected deeply nested input to be rejected.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContractGuardError);
+      expect(error).toMatchObject({ code: "INVALID_DOCUMENT" });
+    }
   });
 
   it("exposes a unique documented rule catalog", () => {

@@ -7,6 +7,7 @@ import {
   normalizeAnalysis,
   normalizeAnalysisList,
   normalizeRules,
+  selectableAiProviders,
 } from './utils.js'
 
 describe('response normalization', () => {
@@ -42,15 +43,97 @@ describe('response normalization', () => {
 })
 
 describe('AI response normalization', () => {
-  it('normalizes service status without trusting provider input', () => {
-    assert.deepEqual(normalizeAiStatus({ enabled: true, configured: true, available: true, provider: 'other', model: 'deepseek-chat' }), {
+  it('keeps the legacy single-provider service status compatible', () => {
+    assert.deepEqual(normalizeAiStatus({ enabled: true, configured: true, available: true, provider: 'deepseek', model: 'deepseek-chat' }), {
       enabled: true,
       configured: true,
       available: true,
       provider: 'deepseek',
       model: 'deepseek-chat',
       reason: undefined,
+      activeProviderId: undefined,
+      defaultProviderId: undefined,
+      allowRequestProviderOverride: false,
+      providers: [],
+      promptVersion: undefined,
     })
+  })
+
+  it('normalizes selectable multi-provider status and both provider label aliases', () => {
+    const status = normalizeAiStatus({
+      enabled: true,
+      configured: true,
+      available: true,
+      provider: 'openai',
+      model: 'gpt-example',
+      activeProfile: 'openai-cloud',
+      defaultProviderId: 'deepseek-cloud',
+      allowRequestProviderOverride: true,
+      providers: [
+        {
+          id: 'deepseek-cloud',
+          label: 'DeepSeek Cloud',
+          provider: 'deepseek',
+          model: 'deepseek-chat',
+          configured: true,
+          available: true,
+        },
+        {
+          id: 'openai-cloud',
+          displayName: 'OpenAI Cloud',
+          provider: 'openai',
+          model: 'gpt-example',
+          configured: true,
+          available: false,
+          local: false,
+        },
+      ],
+    })
+
+    assert.equal(status.activeProviderId, 'openai-cloud')
+    assert.equal(status.defaultProviderId, 'deepseek-cloud')
+    assert.equal(status.allowRequestProviderOverride, true)
+    assert.deepEqual(
+      status.providers.map(({ id, displayName, provider, available }) => ({ id, displayName, provider, available })),
+      [
+        { id: 'deepseek-cloud', displayName: 'DeepSeek Cloud', provider: 'deepseek', available: true },
+        { id: 'openai-cloud', displayName: 'OpenAI Cloud', provider: 'openai', available: false },
+      ],
+    )
+  })
+
+  it('does not use another provider as an implicit fallback when override is disabled', () => {
+    const status = normalizeAiStatus({
+      enabled: true,
+      configured: false,
+      available: false,
+      activeProviderId: 'deepseek-cloud',
+      allowRequestProfileOverride: false,
+      providers: [
+        {
+          id: 'deepseek-cloud',
+          displayName: 'DeepSeek',
+          provider: 'deepseek',
+          model: 'deepseek-flash',
+          enabled: true,
+          configured: false,
+          available: false,
+        },
+        {
+          id: 'ollama-local',
+          displayName: 'Ollama',
+          provider: 'ollama',
+          model: 'local-model',
+          enabled: true,
+          configured: true,
+          available: true,
+        },
+      ],
+    })
+
+    assert.deepEqual(selectableAiProviders(status), [])
+    status.allowRequestProviderOverride = true
+    assert.deepEqual(selectableAiProviders(status).map((provider) => provider.id), ['ollama-local'])
   })
 
   it('keeps structured report fields and supplies safe defaults', () => {
@@ -70,10 +153,27 @@ describe('AI response normalization', () => {
     })
 
     assert.equal(report.overview.riskLevel, 'high')
+    assert.equal(report.provider, 'deepseek')
     assert.equal(report.keyRisks[0]?.priority, 'P0')
     assert.equal(report.keyRisks[0]?.explanation, '模型未提供进一步说明。')
     assert.deepEqual(report.migrationPlan[0]?.actions, ['恢复旧路径'])
     assert.equal(report.usage?.totalTokens, 321)
+  })
+
+  it('keeps the selected provider identity in a generated report', () => {
+    const report = normalizeAiReview({
+      analysisId: 'a-2',
+      provider: 'ollama',
+      providerId: 'ollama-local',
+      label: 'Ollama 本地模型',
+      model: 'qwen3:8b',
+      overview: {},
+    })
+
+    assert.equal(report.provider, 'ollama')
+    assert.equal(report.providerId, 'ollama-local')
+    assert.equal(report.providerLabel, 'Ollama 本地模型')
+    assert.equal(report.model, 'qwen3:8b')
   })
 })
 

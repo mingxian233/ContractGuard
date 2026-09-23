@@ -18,6 +18,10 @@ function renderMarkdown(analysis: StoredAnalysis): string {
     `- Baseline: **${escapeMarkdown(analysis.baselineName)}**`,
     `- Candidate: **${escapeMarkdown(analysis.candidateName)}**`,
     `- Generated: ${analysis.createdAt}`,
+    `- Engine: \`${analysis.engineVersion}\``,
+    ...(analysis.policy ? [`- Policy: \`${escapeCode(analysis.policy.id)}\` · SHA-256 \`${analysis.policy.fingerprint.value}\``] : []),
+    ...(analysis.source.old.fingerprint ? [`- Baseline SHA-256: \`${analysis.source.old.fingerprint.value}\``] : []),
+    ...(analysis.source.new.fingerprint ? [`- Candidate SHA-256: \`${analysis.source.new.fingerprint.value}\``] : []),
     `- Compatibility score: **${analysis.score}/100**`,
     `- Backward compatible: **${analysis.compatible ? 'Yes' : 'No'}**`,
     '',
@@ -72,6 +76,13 @@ function renderHtml(analysis: StoredAnalysis): string {
         <td>${html(change.message)}${change.recommendation ? `<small>${html(change.recommendation)}</small>` : ''}${evidenceHtml(change)}</td>
       </tr>`).join('');
 
+  const audit = [
+    `Engine ${analysis.engineVersion}`,
+    ...(analysis.policy ? [`Policy ${analysis.policy.id} · ${analysis.policy.fingerprint.value}`] : []),
+    ...(analysis.source.old.fingerprint ? [`Baseline SHA-256 ${analysis.source.old.fingerprint.value}`] : []),
+    ...(analysis.source.new.fingerprint ? [`Candidate SHA-256 ${analysis.source.new.fingerprint.value}`] : []),
+  ].map((item) => `<div><code>${html(item)}</code></div>`).join('');
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -80,11 +91,11 @@ function renderHtml(analysis: StoredAnalysis): string {
   <title>ContractGuard report — ${html(analysis.candidateName)}</title>
   <style>
     :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#18202c;background:#f5f7fb;color-scheme:light}
-    body{margin:0;padding:40px}.page{max-width:1100px;margin:auto}.header,.card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 8px 30px #1e293b0a}.header{padding:30px}.eyebrow{color:#596579;font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:12px}h1{margin:8px 0 10px;font-size:30px}.meta{color:#596579}.score{display:flex;align-items:center;gap:18px;margin-top:24px}.number{font-size:48px;font-weight:800;color:${analysis.compatible ? '#087f5b' : '#c92a2a'}}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0}.metric{padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:12px}.metric strong{display:block;font-size:24px}.card{overflow:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:14px;border-bottom:1px solid #edf0f5;vertical-align:top}th{background:#f8fafc;font-size:12px;text-transform:uppercase;color:#596579}.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}.breaking{color:#a51111;background:#fff0f0}.potential{color:#8a4b08;background:#fff6e6}.safe{color:#087f5b;background:#ebfbee}.info{color:#1554ad;background:#edf5ff}code{font-size:12px}small{display:block;color:#596579;margin-top:5px}.evidence{margin-top:9px}.evidence summary{cursor:pointer;color:#334155;font-size:12px}.evidence dl{display:grid;gap:8px;margin:8px 0 0}.evidence dt{font-weight:700;font-size:11px;color:#596579}.evidence dd{margin:2px 0 0}.evidence pre{max-width:520px;margin:0;padding:8px;border-radius:6px;background:#f8fafc;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.4 ui-monospace,monospace}.note{color:#596579;font-size:13px;margin-top:18px}@media(max-width:700px){body{padding:16px}.metrics{grid-template-columns:repeat(2,1fr)}th:nth-child(2),td:nth-child(2){display:none}}
+    body{margin:0;padding:40px}.page{max-width:1100px;margin:auto}.header,.card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 8px 30px #1e293b0a}.header{padding:30px}.eyebrow{color:#596579;font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:12px}h1{margin:8px 0 10px;font-size:30px}.meta{color:#596579}.audit{margin-top:16px;color:#596579;overflow-wrap:anywhere}.score{display:flex;align-items:center;gap:18px;margin-top:24px}.number{font-size:48px;font-weight:800;color:${analysis.compatible ? '#087f5b' : '#c92a2a'}}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0}.metric{padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:12px}.metric strong{display:block;font-size:24px}.card{overflow:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:14px;border-bottom:1px solid #edf0f5;vertical-align:top}th{background:#f8fafc;font-size:12px;text-transform:uppercase;color:#596579}.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}.breaking{color:#a51111;background:#fff0f0}.potential{color:#8a4b08;background:#fff6e6}.safe{color:#087f5b;background:#ebfbee}.info{color:#1554ad;background:#edf5ff}code{font-size:12px}small{display:block;color:#596579;margin-top:5px}.evidence{margin-top:9px}.evidence summary{cursor:pointer;color:#334155;font-size:12px}.evidence dl{display:grid;gap:8px;margin:8px 0 0}.evidence dt{font-weight:700;font-size:11px;color:#596579}.evidence dd{margin:2px 0 0}.evidence pre{max-width:520px;margin:0;padding:8px;border-radius:6px;background:#f8fafc;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.4 ui-monospace,monospace}.note{color:#596579;font-size:13px;margin-top:18px}@media(max-width:700px){body{padding:16px}.metrics{grid-template-columns:repeat(2,1fr)}th:nth-child(2),td:nth-child(2){display:none}}
   </style>
 </head>
 <body><main class="page">
-  <section class="header"><div class="eyebrow">ContractGuard compatibility report</div><h1>${html(analysis.baselineName)} → ${html(analysis.candidateName)}</h1><div class="meta">${html(analysis.createdAt)} · ${html(analysis.id)}</div><div class="score"><div class="number">${analysis.score}</div><div><strong>/ 100</strong><br>${analysis.compatible ? 'No covered breaking changes detected' : 'Breaking changes detected'}</div></div></section>
+  <section class="header"><div class="eyebrow">ContractGuard compatibility report</div><h1>${html(analysis.baselineName)} → ${html(analysis.candidateName)}</h1><div class="meta">${html(analysis.createdAt)} · ${html(analysis.id)}</div><div class="score"><div class="number">${analysis.score}</div><div><strong>/ 100</strong><br>${analysis.compatible ? 'No covered breaking changes detected' : 'Breaking changes detected'}</div></div><div class="audit">${audit}</div></section>
   <section class="metrics"><div class="metric"><strong>${analysis.summary.breaking}</strong>Breaking</div><div class="metric"><strong>${analysis.summary.potentiallyBreaking}</strong>Potential</div><div class="metric"><strong>${analysis.summary.nonBreaking}</strong>Non-breaking</div><div class="metric"><strong>${analysis.summary.info}</strong>Info</div></section>
   <section class="card"><table><thead><tr><th>Severity</th><th>Rule</th><th>Location</th><th>Finding</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No contract changes were detected.</td></tr>'}</tbody></table></section>
   <p class="note">This deterministic report covers the configured static rules and is not a formal proof of compatibility. Runtime behavior and external references still require testing.</p>

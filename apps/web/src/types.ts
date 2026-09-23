@@ -46,13 +46,30 @@ export interface RuleDefinition {
 export type AiRiskLevel = 'critical' | 'high' | 'medium' | 'low'
 export type AiRiskPriority = 'P0' | 'P1' | 'P2'
 
+export interface AiProviderStatus {
+  id: string
+  displayName: string
+  provider: string
+  model: string
+  enabled: boolean
+  configured: boolean
+  available: boolean
+  local?: boolean
+  reason?: string
+}
+
 export interface AiServiceStatus {
   enabled: boolean
   configured: boolean
   available: boolean
-  provider: 'deepseek'
+  provider: string
   model: string
   reason?: string
+  activeProviderId?: string
+  defaultProviderId?: string
+  allowRequestProviderOverride: boolean
+  providers: AiProviderStatus[]
+  promptVersion?: string
 }
 
 export interface AiReportOverview {
@@ -94,7 +111,9 @@ export interface AiTokenUsage {
 export interface AiReviewReport {
   schemaVersion: '1.0'
   analysisId: string
-  provider: 'deepseek'
+  provider: string
+  providerId?: string
+  providerLabel?: string
   model: string
   generatedAt: string
   promptVersion: string

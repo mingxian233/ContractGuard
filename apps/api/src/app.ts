@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
-import { analyzeCompatibility, ContractGuardError, ENGINE_VERSION, ruleCatalog } from '@contractguard/core';
+import {
+  analyzeCompatibility,
+  ContractGuardError,
+  ENGINE_VERSION,
+  ruleCatalog,
+  validateRulePolicy,
+  type RulePolicy,
+} from '@contractguard/core';
+import type { AiRuntimeConfig } from './ai/config.js';
 import { createDeepSeekAiService, type DeepSeekAiConfig } from './ai/deepseek.js';
-import { AiServiceError, type AiReviewLanguage, type AiReviewService } from './ai/types.js';
+import { createMultiProviderAiService } from './ai/service.js';
+import { AiServiceError, type AiReviewLanguage, type AiReviewRequest, type AiReviewService } from './ai/types.js';
 import { renderReport, type ReportFormat } from './reports.js';
 import { AnalysisStore } from './store.js';
 import type { ApiErrorBody, StoredAnalysis } from './types.js';
@@ -18,7 +27,12 @@ export interface AppOptions {
   serveWeb?: boolean;
   aiService?: AiReviewService;
   aiFetch?: typeof globalThis.fetch;
+  /** Backwards-compatible DeepSeek-only programmatic configuration. */
   aiConfig?: Partial<DeepSeekAiConfig>;
+  aiRuntimeConfig?: AiRuntimeConfig;
+  aiConfigPath?: string;
+  aiEnvironment?: NodeJS.ProcessEnv;
+  rulePolicy?: RulePolicy;
 }
 
 export function createApp(options: AppOptions = {}): Express {
@@ -27,10 +41,23 @@ export function createApp(options: AppOptions = {}): Express {
   const maxSpecBytes = options.maxSpecBytes ?? numberFromEnv('CONTRACTGUARD_MAX_SPEC_BYTES', 5 * 1024 * 1024);
   const store = new AnalysisStore(dataDirectory);
   const allowedOrigins = corsOrigins(options.corsOrigin ?? process.env.CORS_ORIGIN);
-  const aiService = options.aiService ?? createDeepSeekAiService({
-    ...(options.aiFetch === undefined ? {} : { fetch: options.aiFetch }),
-    ...(options.aiConfig === undefined ? {} : { config: options.aiConfig }),
-  });
+  const rulePolicy = options.rulePolicy ?? loadRulePolicy(process.env.CONTRACTGUARD_POLICY_CONFIG);
+  const aiService = options.aiService ?? (options.aiConfig === undefined && options.aiRuntimeConfig === undefined
+    ? createMultiProviderAiService({
+      ...(options.aiFetch === undefined ? {} : { fetch: options.aiFetch }),
+      ...(options.aiConfigPath === undefined ? {} : { configPath: options.aiConfigPath }),
+      ...(options.aiEnvironment === undefined ? {} : { environment: options.aiEnvironment }),
+    })
+    : options.aiRuntimeConfig !== undefined
+      ? createMultiProviderAiService({
+        config: options.aiRuntimeConfig,
+        ...(options.aiFetch === undefined ? {} : { fetch: options.aiFetch }),
+        ...(options.aiEnvironment === undefined ? {} : { environment: options.aiEnvironment }),
+      })
+      : createDeepSeekAiService({
+        ...(options.aiFetch === undefined ? {} : { fetch: options.aiFetch }),
+        config: options.aiConfig!,
+      }));
 
   app.disable('x-powered-by');
   app.use(cors({
@@ -74,7 +101,11 @@ export function createApp(options: AppOptions = {}): Express {
     validateName(candidateName, 'candidateName');
 
     const createdAt = new Date().toISOString();
-    const result = analyzeCompatibility(baseline as string | Record<string, unknown>, candidate as string | Record<string, unknown>);
+    const result = analyzeCompatibility(
+      baseline as string | Record<string, unknown>,
+      candidate as string | Record<string, unknown>,
+      rulePolicy === undefined ? {} : { policy: rulePolicy },
+    );
     const analysis: StoredAnalysis = {
       ...result,
       id: randomUUID(),
@@ -87,10 +118,30 @@ export function createApp(options: AppOptions = {}): Express {
   }));
 
   app.post('/api/analyses/:id/ai-review', asyncHandler(async (request, response) => {
-    const analysis = await store.get(routeId(request.params.id));
-    if (!analysis) throw httpError(404, 'ANALYSIS_NOT_FOUND', 'The requested analysis does not exist.');
-    const aiRequest = validateAiReviewRequest(request.body);
-    response.json(await aiService.review(analysis, aiRequest));
+    const controller = new AbortController();
+    const abortUpstream = (): void => {
+      if (!response.writableEnded) controller.abort();
+    };
+    request.once('aborted', abortUpstream);
+    response.once('close', abortUpstream);
+    try {
+      // The client may have disconnected before these listeners were attached.
+      if (request.aborted || response.destroyed) controller.abort();
+      if (controller.signal.aborted) return;
+
+      const analysis = await store.get(routeId(request.params.id));
+      if (controller.signal.aborted) return;
+      if (!analysis) throw httpError(404, 'ANALYSIS_NOT_FOUND', 'The requested analysis does not exist.');
+      const aiRequest = validateAiReviewRequest(request.body);
+      const review = await aiService.review(analysis, aiRequest, { signal: controller.signal });
+      if (!controller.signal.aborted) response.json(review);
+    } catch (error) {
+      if (controller.signal.aborted && (request.aborted || response.destroyed)) return;
+      throw error;
+    } finally {
+      request.off('aborted', abortUpstream);
+      response.off('close', abortUpstream);
+    }
   }));
 
   app.get('/api/analyses/:id/report', asyncHandler(async (request, response) => {
@@ -171,12 +222,12 @@ function validateName(value: unknown, field: string): void {
   }
 }
 
-function validateAiReviewRequest(value: unknown): { language: AiReviewLanguage; focus?: string } {
+function validateAiReviewRequest(value: unknown): AiReviewRequest {
   if (value === undefined) return { language: 'zh-CN' };
   if (!isPlainObject(value)) {
     throw httpError(400, 'INVALID_AI_REVIEW_REQUEST', 'The AI review request body must be a JSON object.');
   }
-  const unexpected = Object.keys(value).find((key) => key !== 'language' && key !== 'focus');
+  const unexpected = Object.keys(value).find((key) => key !== 'language' && key !== 'focus' && key !== 'providerId');
   if (unexpected !== undefined) {
     throw httpError(400, 'INVALID_AI_REVIEW_REQUEST', `Unsupported AI review field: ${unexpected}.`);
   }
@@ -187,8 +238,22 @@ function validateAiReviewRequest(value: unknown): { language: AiReviewLanguage; 
   if (value.focus !== undefined && (typeof value.focus !== 'string' || value.focus.length > 500)) {
     throw httpError(400, 'INVALID_AI_REVIEW_REQUEST', 'focus must be a string no longer than 500 characters.');
   }
+  if (value.providerId !== undefined && (
+    typeof value.providerId !== 'string'
+    || !/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/.test(value.providerId)
+  )) {
+    throw httpError(
+      400,
+      'INVALID_AI_REVIEW_REQUEST',
+      'providerId must be a configured profile identifier no longer than 64 characters.',
+    );
+  }
   const focus = typeof value.focus === 'string' ? value.focus.trim() : undefined;
-  return { language, ...(focus ? { focus } : {}) };
+  return {
+    language: language as AiReviewLanguage,
+    ...(focus ? { focus } : {}),
+    ...(typeof value.providerId === 'string' ? { providerId: value.providerId } : {}),
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -240,4 +305,26 @@ function numberFromEnv(key: string, fallback: number): number {
 function corsOrigins(configured: string | undefined): Set<string> {
   const value = configured ?? 'http://localhost:5173,http://127.0.0.1:5173';
   return new Set(value.split(',').map((origin) => origin.trim()).filter(Boolean));
+}
+
+function loadRulePolicy(pathValue: string | undefined): RulePolicy | undefined {
+  const configuredPath = pathValue?.trim();
+  if (!configuredPath) return undefined;
+  const absolutePath = resolve(configuredPath);
+  let text: string;
+  try {
+    const stats = statSync(absolutePath);
+    if (!stats.isFile()) throw new Error('not a file');
+    if (stats.size > 64 * 1024) throw new Error('too large');
+    text = readFileSync(absolutePath, 'utf8');
+  } catch {
+    throw new Error('CONTRACTGUARD_POLICY_CONFIG must point to a readable JSON file no larger than 65536 bytes.');
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error('CONTRACTGUARD_POLICY_CONFIG is not valid JSON.');
+  }
+  return validateRulePolicy(value);
 }

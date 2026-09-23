@@ -4,9 +4,13 @@ import type { AnalysisResult } from '@contractguard/core';
 import { formatResult } from './formatters.js';
 
 const result: AnalysisResult = {
-  engineVersion: '1.0.1',
+  engineVersion: '1.1.0',
   generatedAt: '2026-09-16T00:00:00.000Z',
-  source: { old: { title: 'API', version: '1', openapi: '3.1.0' }, new: { title: 'API', version: '2', openapi: '3.1.0' } },
+  policy: { id: 'contractguard-default', fingerprint: { algorithm: 'sha256', value: 'a'.repeat(64) } },
+  source: {
+    old: { title: 'API', version: '1', openapi: '3.1.0', fingerprint: { algorithm: 'sha256', value: 'b'.repeat(64) } },
+    new: { title: 'API', version: '2', openapi: '3.1.0', fingerprint: { algorithm: 'sha256', value: 'c'.repeat(64) } },
+  },
   score: 75,
   compatible: false,
   summary: { breaking: 1, potentiallyBreaking: 0, nonBreaking: 0, info: 0, total: 1 },
@@ -22,8 +26,12 @@ describe('CLI formatters', () => {
 
   it('formats JSON, Markdown, and standalone HTML', () => {
     assert.equal(JSON.parse(formatResult(result, 'json', { baseline: 'a', candidate: 'b' })).score, 75);
-    assert.match(formatResult(result, 'markdown', { baseline: 'a', candidate: 'b' }), /# ContractGuard/);
-    assert.match(formatResult(result, 'html', { baseline: 'a', candidate: 'b' }), /<!doctype html>/);
+    const markdown = formatResult(result, 'markdown', { baseline: 'a', candidate: 'b' });
+    assert.match(markdown, /# ContractGuard/);
+    assert.match(markdown, /contractguard-default/);
+    const html = formatResult(result, 'html', { baseline: 'a', candidate: 'b' });
+    assert.match(html, /<!doctype html>/);
+    assert.match(html, /Baseline SHA-256/);
   });
 
   it('escapes terminal control sequences in table output', () => {

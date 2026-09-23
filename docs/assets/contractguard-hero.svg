@@ -102,7 +102,7 @@
       <rect x="295" width="112" height="38" rx="19" fill="#153d37" stroke="#2f655a"/>
       <text x="351" y="25" text-anchor="middle" fill="#bcebd9" font-size="14" font-weight="650">CI-ready</text>
       <rect x="419" width="176" height="38" rx="19" fill="#153d37" stroke="#2f655a"/>
-      <text x="507" y="25" text-anchor="middle" fill="#bcebd9" font-size="14" font-weight="650">Optional DeepSeek</text>
+      <text x="507" y="25" text-anchor="middle" fill="#bcebd9" font-size="14" font-weight="650">Optional Multi-LLM</text>
     </g>
 
     <text x="72" y="580" fill="#729b90" font-size="14">Explainable OpenAPI compatibility checks for Web, CLI, and CI.</text>

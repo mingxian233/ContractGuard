@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { generateAiReview, getAiStatus } from '../api'
 import type { AiReviewReport, AiRiskLevel, AiServiceStatus } from '../types'
-import { formatDate } from '../utils'
+import { formatDate, selectableAiProviders } from '../utils'
 
 const props = defineProps<{ analysisId: string }>()
 
@@ -13,7 +13,10 @@ const statusLoading = ref(true)
 const generating = ref(false)
 const statusError = ref('')
 const reviewError = ref('')
+const selectedProviderId = ref('')
 let requestSequence = 0
+let statusController: AbortController | null = null
+let reviewController: AbortController | null = null
 
 const riskLabels: Record<AiRiskLevel, string> = {
   critical: '严重风险',
@@ -23,19 +26,52 @@ const riskLabels: Record<AiRiskLevel, string> = {
 }
 
 const focusLength = computed(() => focus.value.length)
-const canGenerate = computed(() => status.value?.available === true && !generating.value)
+const availableProviders = computed(() =>
+  status.value === null ? [] : selectableAiProviders(status.value),
+)
+const selectedProvider = computed(() =>
+  availableProviders.value.find((provider) => provider.id === selectedProviderId.value),
+)
+const hasProviderProfiles = computed(() => (status.value?.providers.length ?? 0) > 0)
+const serviceConfigured = computed(() =>
+  hasProviderProfiles.value
+    ? status.value?.allowRequestProviderOverride
+      ? (status.value.providers.some((provider) => provider.enabled && provider.configured) ?? false)
+      : status.value?.configured === true
+    : status.value?.configured === true,
+)
+const serviceAvailable = computed(() =>
+  hasProviderProfiles.value
+    ? status.value?.allowRequestProviderOverride
+      ? availableProviders.value.length > 0
+      : status.value?.available === true && availableProviders.value.length > 0
+    : status.value?.available === true,
+)
+const canGenerate = computed(() => {
+  if (generating.value || status.value?.enabled !== true) return false
+  return hasProviderProfiles.value
+    ? selectedProvider.value !== undefined
+    : status.value.available === true
+})
+const providerCaption = computed(() => {
+  const provider = selectedProvider.value
+  if (provider) return providerModelLabel(provider.displayName, provider.model)
+  if (!status.value) return ''
+  return providerModelLabel(status.value.provider, status.value.model)
+})
 const statusLabel = computed(() => {
   if (statusLoading.value) return '正在检测 AI 服务'
   if (statusError.value) return '状态检测失败'
   if (!status.value?.enabled) return '功能未启用'
-  if (!status.value.configured) return '等待 API 配置'
-  if (!status.value.available) return '服务暂不可用'
-  return 'DeepSeek 已就绪'
+  if (!serviceConfigured.value) return '等待 API 配置'
+  if (!serviceAvailable.value) return '服务暂不可用'
+  const providerName = selectedProvider.value?.displayName
+  return providerName ? `${providerName} 配置就绪` : 'AI 配置就绪'
 })
 const statusTone = computed(() => {
   if (statusLoading.value) return 'checking'
-  if (statusError.value || (status.value?.enabled && status.value.configured && !status.value.available)) return 'error'
-  if (!status.value?.enabled || !status.value.configured) return 'inactive'
+  if (statusError.value || (status.value?.enabled && serviceConfigured.value && !serviceAvailable.value)) return 'error'
+  if (!status.value?.enabled || !serviceConfigured.value) return 'inactive'
   return 'ready'
 })
 const tokenTotal = computed(() => {
@@ -54,23 +90,63 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '请求未完成，请稍后重试。'
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function providerModelLabel(provider: string, model: string): string {
+  return [provider, model].filter(Boolean).join(' · ') || 'AI 服务'
+}
+
+function reportProviderLabel(value: AiReviewReport): string {
+  if (value.providerLabel) return providerModelLabel(value.providerLabel, value.model)
+  const profile = status.value?.providers.find(
+    (provider) => provider.id === value.providerId || provider.provider === value.provider,
+  )
+  return providerModelLabel(profile?.displayName ?? value.provider, value.model)
+}
+
+function chooseProvider(nextStatus: AiServiceStatus): void {
+  const selectable = selectableAiProviders(nextStatus)
+  const current = selectable.find((provider) => provider.id === selectedProviderId.value)
+  if (current) return
+
+  const preferredId = nextStatus.activeProviderId ?? nextStatus.defaultProviderId
+  selectedProviderId.value =
+    selectable.find((provider) => provider.id === preferredId)?.id ?? selectable[0]?.id ?? ''
+}
+
 async function loadStatus(): Promise<void> {
+  statusController?.abort()
+  const controller = new AbortController()
+  statusController = controller
   statusLoading.value = true
   statusError.value = ''
   try {
-    status.value = await getAiStatus()
+    const nextStatus = await getAiStatus(controller.signal)
+    if (statusController !== controller) return
+    status.value = nextStatus
+    chooseProvider(nextStatus)
   } catch (error) {
+    if (isAbortError(error) || statusController !== controller) return
     status.value = null
     statusError.value = errorMessage(error)
   } finally {
-    statusLoading.value = false
+    if (statusController === controller) {
+      statusController = null
+      statusLoading.value = false
+    }
   }
 }
 
 async function generate(): Promise<void> {
   if (!canGenerate.value) return
+  reviewController?.abort()
+  const controller = new AbortController()
+  reviewController = controller
   const sequence = ++requestSequence
   const analysisId = props.analysisId
+  const providerId = hasProviderProfiles.value ? selectedProviderId.value : ''
   generating.value = true
   reviewError.value = ''
   report.value = null
@@ -80,13 +156,16 @@ async function generate(): Promise<void> {
     const result = await generateAiReview(analysisId, {
       language: 'zh-CN',
       ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-    })
+      ...(providerId ? { providerId } : {}),
+    }, controller.signal)
     if (sequence === requestSequence && analysisId === props.analysisId) report.value = result
   } catch (error) {
+    if (isAbortError(error)) return
     if (sequence === requestSequence && analysisId === props.analysisId) {
       reviewError.value = errorMessage(error)
     }
   } finally {
+    if (reviewController === controller) reviewController = null
     if (sequence === requestSequence) generating.value = false
   }
 }
@@ -95,6 +174,8 @@ watch(
   () => props.analysisId,
   () => {
     requestSequence += 1
+    reviewController?.abort()
+    reviewController = null
     focus.value = ''
     report.value = null
     reviewError.value = ''
@@ -102,7 +183,19 @@ watch(
   },
 )
 
+watch(selectedProviderId, () => {
+  report.value = null
+  reviewError.value = ''
+})
+
 onMounted(() => void loadStatus())
+onBeforeUnmount(() => {
+  requestSequence += 1
+  statusController?.abort()
+  reviewController?.abort()
+  statusController = null
+  reviewController = null
+})
 </script>
 
 <template>
@@ -110,7 +203,7 @@ onMounted(() => void loadStatus())
     <header class="ai-interpreter__header">
       <div class="ai-title-block">
         <div>
-          <h2 id="ai-interpreter-title">DeepSeek 解读 <span>可选</span></h2>
+          <h2 id="ai-interpreter-title">AI 报告解读 <span>可选</span></h2>
           <p>基于规则结果生成风险摘要、迁移步骤和测试建议，不影响兼容性结论。</p>
         </div>
       </div>
@@ -130,12 +223,12 @@ onMounted(() => void loadStatus())
       <button class="button button--quiet button--small" type="button" @click="loadStatus">重新检测</button>
     </div>
 
-    <div v-else-if="!status?.available" class="ai-state-card ai-state-card--setup">
+    <div v-else-if="!serviceAvailable" class="ai-state-card ai-state-card--setup">
       <span aria-hidden="true">⌁</span>
       <div>
-        <strong>{{ status?.enabled ? (status.configured ? 'DeepSeek 暂不可用' : '还差一步：配置 DeepSeek API') : 'AI 解释器当前未启用' }}</strong>
+        <strong>{{ status?.enabled ? (serviceConfigured ? 'AI 服务暂不可用' : '还差一步：配置 AI 服务') : 'AI 解释器当前未启用' }}</strong>
         <p v-if="status?.reason">{{ status.reason }}</p>
-        <p v-else>在 API 服务端启用 <code>CONTRACTGUARD_AI_ENABLED</code> 并设置 <code>DEEPSEEK_API_KEY</code>，重启后即可使用。</p>
+        <p v-else>请在 API 服务端启用 AI 功能并配置至少一个模型服务，重启后即可使用。</p>
         <small>密钥只保存在服务端，浏览器不会读取或保存 API Key。</small>
       </div>
       <button class="button button--quiet button--small" type="button" @click="loadStatus">重新检测</button>
@@ -159,7 +252,18 @@ onMounted(() => void loadStatus())
           <p id="ai-focus-hint">仅发送裁剪后的规则结果及此关注点；请勿填写密钥、个人信息或其他敏感数据。</p>
         </div>
         <div class="ai-generate-action">
-          <p>{{ status.provider }} · {{ status.model }}</p>
+          <label v-if="hasProviderProfiles" for="ai-provider-select">模型服务</label>
+          <select
+            v-if="hasProviderProfiles"
+            id="ai-provider-select"
+            v-model="selectedProviderId"
+            :disabled="generating || !status?.allowRequestProviderOverride || availableProviders.length <= 1"
+          >
+            <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
+              {{ providerModelLabel(provider.displayName, provider.model) }}
+            </option>
+          </select>
+          <p v-else>{{ providerCaption }}</p>
           <button
             class="button button--ai"
             type="button"
@@ -176,7 +280,7 @@ onMounted(() => void loadStatus())
       <div v-if="generating" class="ai-generating" aria-live="polite">
         <span class="spinner" aria-hidden="true"></span>
         <div>
-          <strong>DeepSeek 正在整理报告</strong>
+          <strong>AI 正在整理报告</strong>
           <p>正在归纳重点风险、迁移次序与测试覆盖建议，请稍候。</p>
         </div>
       </div>
@@ -192,7 +296,7 @@ onMounted(() => void loadStatus())
             <span class="ai-risk-level" :class="`ai-risk-level--${report.overview.riskLevel}`">
               {{ riskLabels[report.overview.riskLevel] }}
             </span>
-            <span>{{ report.provider }} · {{ report.model }}</span>
+            <span>{{ reportProviderLabel(report) }}</span>
             <span>{{ formatDate(report.generatedAt) }}</span>
           </div>
           <h3 id="ai-report-headline">{{ report.overview.headline }}</h3>

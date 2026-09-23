@@ -7,9 +7,9 @@
 - Node.js 22.13 或更高版本；
 - pnpm 11（项目锁定并验证于 pnpm 11.19）；
 - 可选：Docker 与 Docker Compose。
-- 可选：用于 AI 报告解释器的 DeepSeek API key 与外网访问能力。
+- 可选：一个受支持的云端 LLM API key，或本机 Ollama/OpenAI-compatible 服务。
 
-确定性分析默认在本地进行，不需要模型 API key 或第三方账号。只有显式启用 DeepSeek 报告解释器时，裁剪后的分析结果才会发送到云端。
+确定性分析默认在本地进行，不需要模型 API key 或第三方账号。只有显式启用 AI 报告解释器并选择云端档案时，裁剪后的分析结果才会发送到对应数据边界。
 
 ## 2. 安装与启动
 
@@ -50,16 +50,16 @@ docker compose up --build
 
 基线应当是当前已发布或调用方正在使用的契约，候选应当是准备发布的契约。二者放反会改变兼容性结论。
 
-## 4. 可选：生成 DeepSeek AI 解读
+## 4. 可选：生成多 LLM AI 解读
 
 AI 解释器默认关闭，并且绝不参与严重等级、得分、`compatible` 或 CI 退出码的计算。若希望使用：
 
-1. 只在 API 服务端设置 `CONTRACTGUARD_AI_ENABLED=true` 和 `DEEPSEEK_API_KEY`；
+1. 复制 `config/llm-providers.example.json`，设置 `CONTRACTGUARD_LLM_CONFIG`，并只在 API 服务端注入档案 `secretEnv` 指向的 key；
 2. 重启服务并访问 `GET /api/ai/status`，确认 `available` 为 `true`；
 3. 先完成一次普通分析，取得响应中的 `id`；
-4. 调用 `POST /api/analyses/{id}/ai-review`，请求体使用 `{"language":"zh-CN"}`，可选添加 `focus`。
+4. 调用 `POST /api/analyses/{id}/ai-review`，请求体使用 `{"language":"zh-CN","providerId":"deepseek-cloud"}`，`providerId` 和 `focus` 均可省略。
 
-在 Web 工作台中无需手工调用接口：完成分析后向下滚动到“DeepSeek AI 报告解释器”。状态显示“DeepSeek 已就绪”时，可填写不超过 500 字符的“本次特别关注”，再点击“生成 AI 解读”。页面会分别展示重点风险、建议迁移计划、测试建议和解读局限，并保留 `changeId` 供你回到原始 finding 核对。
+在 Web 工作台中无需手工调用接口：完成分析后向下滚动到“AI 报告解释器”。如果管理员允许档案覆盖，可先从服务端公布的可用档案中选择，再填写不超过 500 字符的“本次特别关注”并生成解读。页面会展示实际 Provider/模型、重点风险、迁移计划、测试建议与解读局限，并保留 `changeId` 供你回到原始 finding 核对。
 
 PowerShell 快速调用：
 
@@ -69,10 +69,10 @@ $review = Invoke-RestMethod `
   -Method Post `
   -Uri "http://localhost:8080/api/analyses/$($analysis.id)/ai-review" `
   -ContentType 'application/json; charset=utf-8' `
-  -Body '{"language":"zh-CN","focus":"优先说明 breaking 变化和迁移顺序"}'
+  -Body '{"language":"zh-CN","focus":"优先说明 breaking 变化和迁移顺序","providerId":"deepseek-cloud"}'
 ```
 
-完整配置、Docker 操作、从 fixture 创建 `$analysis` 的可复制命令、响应字段和错误处理见 [DeepSeek AI 报告解释器](./ai-report-interpreter.md)。DeepSeek 是云端服务，调用会产生数据传输、延迟和可能的费用；ContractGuard 默认不发送原始 OpenAPI，只发送有数量上限的结构化 finding。
+完整配置、Docker 操作、响应字段和错误处理见[多 LLM AI 报告解释器](./ai-report-interpreter.md)。云端调用会产生数据传输、延迟和可能的费用；ContractGuard 默认不发送原始 OpenAPI，只发送有数量上限的结构化 finding。V1.1 不会在失败时自动切换 Provider。
 
 ## 5. 输入规范
 
@@ -145,8 +145,11 @@ pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaki
 | `--format` | `table`、`json`、`markdown`、`html` | 选择输出格式 |
 | `--output` | 文件路径 | 将输出写入文件；未提供时写到终端 |
 | `--fail-on` | `breaking`、`potentially-breaking`、`never` | 设置 CI 失败阈值 |
+| `--policy` | JSON 文件路径 | 应用规则启停、severity 与评分权重策略 |
 
 输入无法解析、文件不存在或程序异常时，不论 `--fail-on` 如何设置都应返回非零退出码；`never` 只表示“不要因为发现兼容性风险而失败”。
+
+使用策略时，新报告会记录策略、baseline 与 candidate 的 SHA-256 指纹，便于复核输入和治理口径。完整格式与安全建议见[规则策略与输入指纹](./rule-policy.md)。
 
 ## 8. CI 示例
 
@@ -210,13 +213,13 @@ HTML 报告由输入规范生成，分享前仍应检查其中是否含有内部
 
 不能。它是发布评审的一条证据，还应结合消费者契约测试、集成测试、监控、灰度和回滚方案。
 
-### DeepSeek 会改变兼容性分数吗？
+### LLM 会改变兼容性分数吗？
 
 不会。模型只接收确定性结果的裁剪副本并返回自然语言解释。规则等级、得分、`compatible` 和 CLI/CI 行为在调用 AI 前已经确定。
 
-### 关闭 DeepSeek 后还能用吗？
+### 关闭 AI 后还能用吗？
 
-可以。默认配置就是关闭状态；普通分析、历史、报告导出和 CLI 均不依赖 DeepSeek。AI 失败时应保留并继续使用确定性报告。
+可以。默认配置就是关闭状态；普通分析、历史、报告导出和 CLI 均不依赖任何 LLM。AI 失败时应保留并继续使用确定性报告。
 
 ## 11. 故障排查
 
@@ -228,8 +231,9 @@ HTML 报告由输入规范生成，分享前仍应检查其中是否含有内部
 | 历史无法保存 | 检查数据目录权限和磁盘空间 |
 | CI 意外通过 | 检查 `--fail-on`、输入顺序与命令退出码是否被 shell 忽略 |
 | 结果与业务认知冲突 | 对照规则位置，并补充消费者测试；必要时记录为已知误报/漏报 |
-| AI 状态为不可用 | 检查开关、服务端 key 与模型名；修改环境变量后重启进程 |
-| AI 返回 502/504 | 检查服务端网络、DeepSeek 状态/配额和超时；确定性报告仍可继续使用 |
+| 策略加载失败 | 检查 `CONTRACTGUARD_POLICY_CONFIG`、JSON Schema、规则 ID 与 64 KiB 上限 |
+| AI 状态为不可用 | 检查配置路径、总开关、档案开关、活动档案、`secretEnv` 与模型名；修改后重启进程 |
+| AI 返回 502/504 | 检查所选 Provider 的端点、账号/配额、网络和超时；确定性报告仍可继续使用 |
 | 担心云端泄露 | 不启用 AI，或先脱敏 finding；不要把服务无鉴权暴露到公网 |
 
-更多接口细节见 [API Reference](./api-reference.md)，AI 完整教程见 [ai-report-interpreter.md](./ai-report-interpreter.md)，开发流程见 [development.md](./development.md)。
+更多接口细节见 [API Reference](./api-reference.md)，AI 完整教程见 [ai-report-interpreter.md](./ai-report-interpreter.md)，策略见 [rule-policy.md](./rule-policy.md)，开发流程见 [development.md](./development.md)。

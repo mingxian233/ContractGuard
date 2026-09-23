@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
-import { analyzeCompatibility, ENGINE_VERSION, ruleCatalog } from '@contractguard/core';
+import {
+  analyzeCompatibility,
+  ENGINE_VERSION,
+  ruleCatalog,
+  validateRulePolicy,
+  type RulePolicy,
+} from '@contractguard/core';
 import { Command, InvalidArgumentError } from 'commander';
 import { formatResult, terminalSafe, type OutputFormat } from './formatters.js';
 
@@ -20,13 +26,19 @@ program.command('compare')
   .option('-f, --format <format>', 'table, json, markdown, or html', parseFormat, 'table')
   .option('-o, --output <file>', 'write the report to a file instead of stdout')
   .option('--fail-on <level>', 'breaking, potentially-breaking, or never', parseFailOn, 'breaking')
-  .action(async (baselinePath: string, candidatePath: string, options: { format: OutputFormat; output?: string; failOn: FailOn }) => {
+  .option('--policy <file>', 'apply a ContractGuard rule policy JSON file')
+  .action(async (
+    baselinePath: string,
+    candidatePath: string,
+    options: { format: OutputFormat; output?: string; failOn: FailOn; policy?: string },
+  ) => {
     try {
       const [baseline, candidate] = await Promise.all([
         readFile(resolve(baselinePath), 'utf8'),
         readFile(resolve(candidatePath), 'utf8'),
       ]);
-      const result = analyzeCompatibility(baseline, candidate);
+      const policy = options.policy === undefined ? undefined : await readPolicy(options.policy);
+      const result = analyzeCompatibility(baseline, candidate, policy === undefined ? {} : { policy });
       const rendered = formatResult(result, options.format, {
         baseline: basename(baselinePath),
         candidate: basename(candidatePath),
@@ -73,4 +85,22 @@ export function thresholdReached(summary: { breaking: number; potentiallyBreakin
   if (failOn === 'never') return false;
   if (failOn === 'potentially-breaking') return summary.breaking + summary.potentiallyBreaking > 0;
   return summary.breaking > 0;
+}
+
+async function readPolicy(path: string): Promise<RulePolicy> {
+  const policyPath = resolve(path);
+  const policyStats = await stat(policyPath);
+  if (!policyStats.isFile()) throw new Error(`Rule policy is not a regular file: ${terminalSafe(policyPath)}`);
+  if (policyStats.size > 64 * 1024) throw new Error('Rule policy exceeds the 65536-byte limit.');
+  const contents = await readFile(policyPath, 'utf8');
+  if (Buffer.byteLength(contents, 'utf8') > 64 * 1024) {
+    throw new Error('Rule policy exceeds the 65536-byte limit.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    throw new Error(`Rule policy is not valid JSON: ${terminalSafe(policyPath)}`);
+  }
+  return validateRulePolicy(parsed);
 }

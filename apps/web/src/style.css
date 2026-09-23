@@ -190,6 +190,10 @@ main { min-height: 100vh; margin-left: 248px; }
 .ai-focus-field textarea::placeholder { color: #4f5c72; }
 .ai-focus-field > p { margin: 6px 0 0; color: #59667b; font-size: 8px; line-height: 1.5; }
 .ai-generate-action { min-width: 200px; padding-bottom: 20px; }
+.ai-generate-action > label { display: block; margin: 0 0 7px; color: #8b98ae; text-align: right; font-size: 9px; }
+.ai-generate-action > select { width: 100%; min-height: 34px; margin: 0 0 8px; border: 1px solid #303d55; border-radius: 7px; padding: 0 30px 0 9px; outline: 0; background: #0a111e; color: #cbd5e5; font-size: 10px; }
+.ai-generate-action > select:focus { border-color: #6985df; box-shadow: 0 0 0 3px rgb(91 134 255 / 10%); }
+.ai-generate-action > select:disabled { color: #77849a; cursor: not-allowed; opacity: .85; }
 .ai-generate-action > p { margin: 0 0 8px; color: #66738a; text-align: right; font: 8px 'Cascadia Mono', Consolas, monospace; text-transform: uppercase; }
 .button--ai { width: 100%; min-width: 200px; color: #fff; background: linear-gradient(135deg, #5a7bf0, #735ed4); box-shadow: 0 9px 28px rgb(78 86 211 / 25%); }
 .button--ai:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.08); }
@@ -737,6 +741,10 @@ main { margin-left: 220px; }
 .ai-focus-field textarea::placeholder { color: #98a2b3; }
 .ai-focus-field > p { color: #8992a1; font-size: 11px; }
 .ai-generate-action { min-width: 190px; padding-bottom: 20px; }
+.ai-generate-action > label { color: #667085; font-size: 11px; }
+.ai-generate-action > select { min-height: 36px; border-color: var(--line-strong); border-radius: 6px; background: #fff; color: #303844; font-size: 12px; }
+.ai-generate-action > select:focus { border-color: #6884ad; box-shadow: 0 0 0 3px rgb(49 94 168 / 10%); }
+.ai-generate-action > select:disabled { color: #667085; background: #f7f8fa; }
 .ai-generate-action > p { color: #7b8493; font: 11px/1.4 inherit; text-transform: none; }
 .button--ai { min-width: 190px; }
 .ai-generating { min-height: 86px; margin-top: 16px; padding: 18px; border-color: var(--line-strong); border-radius: 6px; background: #fafbfc; }

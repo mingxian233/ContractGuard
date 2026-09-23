@@ -11,6 +11,8 @@ coverage
 .env
 .env.*
 !.env.example
+config/*.local.json
+config/llm-providers.json
 outputs
 *.log
 *.tsbuildinfo

@@ -30,7 +30,8 @@
 | 示例与评估 | `fixtures/`、`examples/` | breaking/compatible fixture、manifest、可直接阅读的样例报告、GitHub Actions 与 AI 请求示例 |
 | 自动化验证 | `scripts/`、各 workspace 测试 | 单元测试、类型检查、构建与端到端冒烟检查 |
 | 部署入口 | `Dockerfile`、`docker-compose.yml` | 单容器构建、本机端口绑定与持久化 volume |
-| Windows 启动 | `start-contractguard.bat` | 环境检查、可选安全读取 DeepSeek Key、启动已构建服务 |
+| Windows 启动 | `start-contractguard.bat`、`scripts/start-contractguard.ps1` | 双击 BAT 入口、依赖安装/构建、过期产物检测、配置与策略自检、活动档案安全输入 key、无 AI/非交互模式，以及旧版 DeepSeek 启动兼容 |
+| 治理配置 | `config/` | 多 LLM Profile、规则策略样例及严格 JSON Schema |
 
 ## 3. 文档与治理交付
 
@@ -43,7 +44,8 @@
 - [x] 系统设计：[`docs/architecture.md`](./architecture.md)
 - [x] 兼容性口径：[`docs/compatibility-rules.md`](./compatibility-rules.md)
 - [x] REST API：[`docs/api-reference.md`](./api-reference.md)
-- [x] DeepSeek 配置、数据边界与故障排查：[`docs/ai-report-interpreter.md`](./ai-report-interpreter.md)
+- [x] 多 LLM 配置、数据边界与故障排查：[`docs/ai-report-interpreter.md`](./ai-report-interpreter.md)
+- [x] 规则策略、评分和输入指纹：[`docs/rule-policy.md`](./rule-policy.md)
 - [x] 开发、评估与验证：[`docs/development.md`](./development.md)、[`docs/evaluation.md`](./evaluation.md)、[`docs/verification.md`](./verification.md)
 - [x] 安全策略与部署边界：[`SECURITY.md`](../SECURITY.md)
 - [x] 无真实凭据的配置模板：[`.env.example`](../.env.example)
@@ -69,9 +71,10 @@ pnpm check
 3. 筛选 breaking finding，展开证据；
 4. 分别导出 JSON、Markdown 与 HTML；
 5. 打开“分析历史”，重新载入并删除该记录；
-6. 未配置 Key 时确认 AI 明确显示不可用，而不影响核心分析。
+6. 未配置 key 时确认对应 AI 档案明确显示不可用，而不影响核心分析；
+7. 用 `--policy config/rule-policy.example.json` 运行一次 CLI，并确认报告包含策略与输入 SHA-256。
 
-真实 DeepSeek 调用属于可选验收项。只有在用户主动提供自己的 Key、确认费用与数据政策后，才应执行 [`docs/ai-report-interpreter.md`](./ai-report-interpreter.md) 中的云端连通性步骤。
+真实云端 LLM 调用属于可选验收项。只有在用户主动提供自己的 key、确认费用与数据政策后，才应执行 [`docs/ai-report-interpreter.md`](./ai-report-interpreter.md) 中的云端连通性步骤。默认测试应使用 fake provider 或本地受控端点。
 
 ## 5. CI 验收范围
 
@@ -92,7 +95,7 @@ GitHub 页面上的实时 Actions 结果才是远程环境的最终状态；本�
 - `node_modules/`、包管理器缓存；
 - `dist/`、coverage、`.test-dist/` 与其他生成物；
 - `data/analyses/` 下的本地分析历史（仅保留 `.gitkeep`）；
-- `.env`、真实 DeepSeek API Key 或其他凭据；
+- `.env`、`config/*.local.json`、真实 API key 或其他凭据；
 - 临时报告、日志与本机编辑器文件；
 - 用户目录绝对路径、Git 凭据或其他机器特定信息。
 
@@ -115,7 +118,8 @@ git diff --check
 - [ ] Docker 镜像在具有 Docker daemon 的环境中完成一次实际构建与健康检查；
 - [ ] 未跟踪文件中没有分析历史、报告、日志或凭据；
 - [ ] 若规则行为改变，已同步 fixture、测试、规则文档、引擎版本和验证记录；
-- [ ] 若 AI schema、模型或默认配置改变，已同步 `.env.example`、启动脚本与 AI 指南；
+- [ ] 若 AI schema、模型或默认配置改变，已同步 LLM Schema、`.env.example`、启动脚本与 AI 指南；
+- [ ] 若规则策略格式或默认行为改变，已同步策略 Schema、样例、CLI/API 文档与指纹说明；
 - [ ] 发布说明诚实列出当前不支持的 OpenAPI/JSON Schema 语义。
 
 ## 8. 交付边界

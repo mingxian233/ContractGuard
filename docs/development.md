@@ -40,8 +40,9 @@ pnpm typecheck  # 运行 TypeScript 类型检查（若脚本可用）
 2. 校验最低限度的 OpenAPI 文档结构；
 3. 解析本地 `$ref` 与统一参数/响应结构；
 4. 比较 baseline 与 candidate；
-5. 生成 `Change[]`、摘要和得分；
-6. 暴露版本化规则目录。
+5. 验证并应用规则策略；
+6. 生成 `Change[]`、摘要、得分和输入/策略指纹；
+7. 暴露版本化规则目录。
 
 核心函数应尽量是纯函数。时间戳等不可重复值在边界层注入或单独测试。不得在解析过程中抓取远程 URL。
 
@@ -49,11 +50,14 @@ pnpm typecheck  # 运行 TypeScript 类型检查（若脚本可用）
 
 API 负责输入上限、状态码、历史 repository、导出内容类型和可选的 AI provider 边界。路由层不应包含类似“新增必填字段就是 breaking”的逻辑。错误应归一为稳定 JSON 结构，服务端日志与公开消息分离。
 
-DeepSeek 集成必须遵守：
+多 LLM 集成必须遵守：
 
 - 默认关闭，没有 key 时普通 API 仍可启动；
 - 只从已保存的分析中提取有上限的 finding，不发送原始 OpenAPI；
-- key 只从服务端环境读取，不能下发到前端或写入公开错误；
+- JSON 只保存 `secretEnv` 名称，key 只从服务端环境读取，不能下发到前端或写入公开错误；
+- 浏览器只能提交服务端档案 ID，不能提交 URL、模型、请求头或凭据；
+- adapter 使用静态注册表，不能从 JSON 动态加载代码；
+- 不自动跨 Provider fallback，避免未经批准改变数据边界；
 - 使用 `AbortSignal`/超时终止慢请求，并把上游错误映射为稳定错误码；
 - 对模型 JSON 做运行时结构校验，不能只依赖 TypeScript 类型断言；
 - provider 接口与 HTTP 路由分离，以便测试时注入 fake provider；
@@ -152,7 +156,7 @@ it('marks an optional request parameter becoming required as breaking', () => {
 
 使用同一对 fixture 分别调用核心、API 和 CLI，比较规则 ID、位置、等级和摘要。忽略记录 ID、生成时间等非语义字段。
 
-AI 测试不能对自然语言逐字断言，也不应在默认测试套件中调用真实 DeepSeek。应固定 fake provider 返回，验证请求裁剪、响应 schema、错误降级和“不会改变确定性结果”的架构不变量。真实云端 smoke test 仅在人工触发、已配置 secret 且明确接受费用时运行。
+AI 测试不能对自然语言逐字断言，也不应在默认测试套件中调用真实云端模型。应固定 fake provider 返回，验证档案选择、能力参数、请求裁剪、响应 schema、错误降级和“不会改变确定性结果”的架构不变量。真实云端 smoke test 仅在人工触发、已配置 secret 且明确接受费用时运行。
 
 ## 7. 使用 fixtures
 
@@ -189,7 +193,15 @@ pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-compat
 - 请求/规范最大尺寸；
 - 日志级别和保留条数（若已实现）。
 
-AI 解释器使用以下变量：
+V1.1 的主要配置入口如下：
+
+| 变量 | 默认值 | 约束 |
+| --- | --- | --- |
+| `CONTRACTGUARD_POLICY_CONFIG` | 空 | 可选规则策略 JSON，API 启动时严格校验；最大 64 KiB |
+| `CONTRACTGUARD_LLM_CONFIG` | 空 | 可选多 LLM Profile JSON；设置后优先于旧版 DeepSeek 变量 |
+| `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | 空 | 示例 `secretEnv`；实际名称由 Profile 指定，只从服务端环境读取 |
+
+未设置 `CONTRACTGUARD_LLM_CONFIG` 时，以下变量作为 DeepSeek-only 兼容模式：
 
 | 变量 | 默认值 | 约束 |
 | --- | --- | --- |
@@ -200,10 +212,11 @@ AI 解释器使用以下变量：
 | `CONTRACTGUARD_AI_TIMEOUT_MS` | `30000` | 有效范围 1–120000 毫秒，非法值回退默认值 |
 | `CONTRACTGUARD_AI_MAX_CHANGES` | `50` | 有效范围 1–200，非法值回退默认值 |
 | `CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS` | `8192` | 有效范围 512–32768，避免结构化 JSON 被中途截断 |
+| `CONTRACTGUARD_AI_MAX_RESPONSE_BYTES` | `131072` | 有效范围 1024–1048576，限制上游响应体 |
 
 所有变量都应有安全的开发默认值，并在 README 或 `.env.example` 中记录。不得提交真实密钥或内部服务地址。
 
-DeepSeek 的 base URL、模型名和输出能力会演进；修改默认配置前应核对 [官方首次调用文档](https://api-docs.deepseek.com/) 与 [JSON Output 指南](https://api-docs.deepseek.com/guides/json_mode/)，不要从非官方文章复制过时模型名，也不要在文档或测试中写死价格。
+各 Provider 的 base URL、模型名和输出能力会演进；修改样例前应核对 [AI 指南列出的官方资料](./ai-report-interpreter.md#2-支持范围)，不要从非官方文章复制过时模型名，也不要在文档或测试中写死价格。规则策略格式与审计语义见 [rule-policy.md](./rule-policy.md)。
 
 ## 10. Git 与评审建议
 

@@ -13,13 +13,13 @@
 
 ContractGuard compares a released OpenAPI contract (the baseline) with a proposed contract (the candidate) and identifies changes that may break existing consumers. It goes beyond showing what changed: each finding includes a severity, stable rule ID, precise contract location, relevant before/after evidence, and remediation guidance.
 
-All compatibility decisions come from a deterministic rule engine. The optional DeepSeek integration only turns existing findings into a risk summary, migration plan, and test suggestions; it does not participate in scoring or release gating.
+All compatibility decisions come from a deterministic rule engine. The optional multi-LLM interpreter can use server-configured DeepSeek, OpenAI, Gemini, or Ollama profiles to turn existing findings into a risk summary, migration plan, and test suggestions; it does not participate in scoring or release gating.
 
 The current release targets OpenAPI 3.0 and 3.1. Refer to the official [OpenAPI 3.0.4 specification](https://spec.openapis.org/oas/v3.0.4.html), [OpenAPI 3.1.2 specification](https://spec.openapis.org/oas/v3.1.2.html), and [published specification index](https://spec.openapis.org/oas/) for the authoritative syntax.
 
 **[View a real report](examples/reports/petstore-breaking.md) · [Run locally](#run-it-in-five-minutes) · [Add it to CI](#cli-and-ci-usage) · [Read the rule model](docs/compatibility-rules.md)**
 
-Verified by 67 automated tests and two end-to-end fixture cases. See the reproducible [verification record](docs/verification.md); fixture coverage is not presented as real-world accuracy.
+Verified by the repository's automated test and end-to-end fixture suites. See the reproducible [verification record](docs/verification.md); fixture coverage is not presented as real-world accuracy.
 
 ## See the result
 
@@ -70,7 +70,9 @@ ContractGuard is a static contract analyzer. It is not runtime monitoring, an AP
 | CLI and CI gate | Supports `table`, `json`, `markdown`, and `html` output with configurable failure thresholds |
 | REST API | Creates, reads, and deletes analyses; lists rules; exports JSON, Markdown, and HTML reports |
 | Local persistence | Stores analysis records as local JSON files with no database requirement |
-| Optional DeepSeek review | Produces a structured summary, migration steps, and test suggestions from bounded finding context |
+| Policy as code | Enables, suppresses, or reclassifies known rules and customizes score weights through validated JSON |
+| Reproducible audit metadata | Records SHA-256 fingerprints for baseline, candidate, and the normalized rule policy |
+| Optional multi-LLM review | Selects an enabled DeepSeek, OpenAI, Gemini, or Ollama profile and produces a structured review from bounded finding context |
 
 ## Run it in five minutes
 
@@ -114,15 +116,27 @@ The Web development server runs at `http://localhost:5173` and proxies `/api` to
 
 ### Windows launcher
 
-If PowerShell blocks `pnpm.ps1`, use the `.cmd` entry point:
+The BAT entry point calls a PowerShell 5.1-compatible launcher with a temporary execution-policy bypass. On the first run, install the locked dependencies, build, and start with:
 
 ```powershell
-pnpm.cmd install --frozen-lockfile
-pnpm.cmd build
-.\start-contractguard.bat
+.\start-contractguard.bat --install
 ```
 
-The launcher prompts for an optional DeepSeek API key. Press Enter to run only the local deterministic analyzer. A supplied key exists only in that server process environment and is not written to a project file.
+Normal and maintenance modes:
+
+```powershell
+.\start-contractguard.bat
+# Or start with a V1.1 profile file:
+.\start-contractguard.bat --config .\config\llm-providers.local.json
+# Rebuild after changing source files, then start:
+.\start-contractguard.bat --build
+# Run only the deterministic analyzer:
+.\start-contractguard.bat --no-ai
+# Validate runtime, builds, LLM JSON and rule policy without starting:
+.\start-contractguard.bat --check --config .\config\llm-providers.local.json --policy .\config\rule-policy.example.json
+```
+
+With no argument, the launcher automatically uses `config\llm-providers.local.json` when it exists; otherwise it retains the legacy DeepSeek flow. It validates JSON with the server parser, rejects missing or stale builds, honors existing environment settings, and securely asks only for a missing key of an enabled active profile. Supplied keys exist only in the server process environment and are not written to a project file. The launcher deliberately does not load `.env`; inject secrets through the current process or a secret manager. Run `start-contractguard.bat --help` for all modes, including host/port overrides and non-pausing automation. If a custom Windows path contains CMD metacharacters such as `&`, set `CONTRACTGUARD_LLM_CONFIG`/`CONTRACTGUARD_POLICY_CONFIG` in PowerShell instead of passing that path through a BAT argument.
 
 ## CLI and CI usage
 
@@ -146,21 +160,33 @@ pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaki
 
 A reusable workflow is available at [`examples/github-actions-contractguard.yml`](examples/github-actions-contractguard.yml). It assumes `openapi/released.yaml` and `openapi/candidate.yaml`; replace those paths for your repository.
 
-## Optional DeepSeek integration
+### Optional rule policy
 
-AI review is not required for core analysis. It must be enabled explicitly in the API server environment:
+V1.1 can apply an audited JSON policy to disable or reclassify known rules and customize scoring weights:
 
-```dotenv
-CONTRACTGUARD_AI_ENABLED=true
-DEEPSEEK_API_KEY=<YOUR_DEEPSEEK_API_KEY>
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-flash
-CONTRACTGUARD_AI_TIMEOUT_MS=30000
-CONTRACTGUARD_AI_MAX_CHANGES=50
-CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS=8192
+```bash
+cp config/rule-policy.example.json config/rule-policy.local.json
+pnpm contractguard compare fixtures/petstore-v1.yaml fixtures/petstore-v2-breaking.yaml --policy config/rule-policy.local.json --fail-on breaking
 ```
 
-`.env.example` is a configuration template. A directly started Node.js process does not load arbitrary `.env` files, so inject the variables through the current shell, a process manager, or the container environment. On Windows, `start-contractguard.bat` is the safer path because it keeps the key out of command history.
+For the API server, set `CONTRACTGUARD_POLICY_CONFIG=./config/rule-policy.local.json`. New results and exported reports include the normalized policy fingerprint plus baseline and candidate SHA-256 values; histories written by 1.0.x may not contain these optional fields. See [Rule policy and fingerprints](docs/rule-policy.md).
+
+## Optional multi-LLM integration
+
+AI review is not required for core analysis. V1.1 includes profiles for DeepSeek, OpenAI, Gemini, and Ollama and also accepts an administrator-named provider that implements the audited OpenAI-compatible chat contract. Start from the checked example and select the default with `activeProfile`:
+
+```powershell
+Copy-Item config/llm-providers.example.json config/llm-providers.local.json
+$env:CONTRACTGUARD_LLM_CONFIG = './config/llm-providers.local.json'
+$env:DEEPSEEK_API_KEY = '<YOUR_DEEPSEEK_API_KEY>'
+pnpm start
+```
+
+Edit the copied JSON to enable only the profiles you intend to use and replace placeholder model IDs. `allowRequestProfileOverride` controls whether the Web UI/API may select another enabled profile; when it is `false`, all requests use `activeProfile`. The browser sends only a profile ID—it cannot supply a URL, model, header, or credential.
+
+Each profile also declares the endpoint's request capabilities. In particular, use `tokenLimitParameter: "max_completion_tokens"` for OpenAI models that do not accept deprecated `max_tokens`; the checked example already demonstrates this distinction.
+
+Never put a real key in the JSON. Each bearer profile contains a `secretEnv` name such as `OPENAI_API_KEY`; the corresponding value must be injected into the server process. See [`config/llm-providers.example.json`](config/llm-providers.example.json), its strict [`JSON Schema`](config/llm-providers.schema.json), and [`.env.example`](.env.example). If `CONTRACTGUARD_LLM_CONFIG` is unset, the previous `CONTRACTGUARD_AI_ENABLED` and `DEEPSEEK_*` variables continue to provide a DeepSeek-only compatibility mode.
 
 Data and decision boundaries:
 
@@ -170,7 +196,7 @@ Data and decision boundaries:
 - every model response must pass runtime structure validation;
 - model output cannot alter rule severity, compatibility score, the `compatible` flag, or CI exit codes.
 
-See the [AI report interpreter guide](docs/ai-report-interpreter.md) for complete PowerShell, bash, Docker, status-check, and API examples. Cloud model usage may incur fees; review your organization's data and privacy policy before enabling it.
+See the [AI report interpreter guide](docs/ai-report-interpreter.md) for the complete profile format, PowerShell, bash, Docker, status-check, and API examples. Cloud model usage may incur fees; review each selected provider's current terms, data handling, and pricing before enabling it. Official protocol references are linked in that guide rather than duplicating changeable model or price data here.
 
 ## Docker
 
@@ -188,8 +214,9 @@ Open `http://localhost:8080`. Compose binds to `127.0.0.1` by default and stores
 | PowerShell blocks `pnpm.ps1` | Use `pnpm.cmd` instead; changing the system execution policy is unnecessary |
 | The UI reports that the analysis engine is offline | Confirm that the API is listening on port `8080`; in development, keep both processes launched by `pnpm dev` running |
 | The CLI exits with code `2` | This is the expected policy result when findings reach `--fail-on`, not a program crash |
-| AI is disabled or not configured | Set both `CONTRACTGUARD_AI_ENABLED=true` and `DEEPSEEK_API_KEY`, then restart the API process |
-| AI returns invalid or truncated JSON | Retry; if it persists, increase `CONTRACTGUARD_AI_MAX_OUTPUT_TOKENS` or reduce `CONTRACTGUARD_AI_MAX_CHANGES` |
+| AI is disabled or not configured | Check `CONTRACTGUARD_LLM_CONFIG`, `enabled`, `activeProfile`, the profile's `enabled` value, and its `secretEnv`; legacy mode still uses `CONTRACTGUARD_AI_ENABLED` plus `DEEPSEEK_API_KEY` |
+| The desired profile is not selectable | Enable it in the server JSON, set `allowRequestProfileOverride: true`, provide any required secret environment variable, and restart the API |
+| AI returns an unsupported-parameter error or invalid/truncated JSON | Confirm the profile's `structuredOutput` and `tokenLimitParameter` match the endpoint; retry, then raise `defaults.maxOutputTokens` or reduce `defaults.maxChanges` if needed |
 
 See the [user-guide troubleshooting section](docs/user-guide.md#11-故障排查) and [AI error reference](docs/ai-report-interpreter.md#10-错误与降级) for more detail.
 
@@ -206,22 +233,23 @@ flowchart LR
     S --> C[CLI / CI gate]
     S --> E[JSON / Markdown / HTML]
     S --> M[Bounded finding context]
-    M --> AI[Optional DeepSeek explanation]
+    M --> AI[Optional selected LLM explanation]
 ```
 
-The Web app, REST API, and CLI reuse the same core engine. DeepSeek lives on a separate explanatory branch; analysis, gating, and report export continue to work when the model is disabled or unavailable.
+The Web app, REST API, and CLI reuse the same core engine. The selected LLM profile lives on a separate explanatory branch; analysis, gating, and report export continue to work when every model is disabled or unavailable.
 
 ## Repository layout
 
 ```text
 apps/
-  api/       REST API, local persistence, report export, DeepSeek adapter
+  api/       REST API, local persistence, report export, and multi-LLM adapter registry
   cli/       local and CI command-line entry point
   web/       Vue 3 Web workspace
 packages/
   core/      OpenAPI parsing, local reference resolution, rules, and scoring
 fixtures/    reproducible compatible/breaking examples and evaluation manifest
 examples/    GitHub Actions and AI request examples
+config/      strict JSON schemas and examples for rule policies and LLM profiles
 docs/        architecture, rules, API, usage, development, evaluation, and verification
 scripts/     end-to-end smoke test
 ```
@@ -254,8 +282,9 @@ The compatibility score is a heuristic for risk ordering, not a mathematical pro
 - [User guide](docs/user-guide.md)
 - [Architecture](docs/architecture.md)
 - [Compatibility rules](docs/compatibility-rules.md)
+- [Rule policy and input fingerprints](docs/rule-policy.md)
 - [REST API](docs/api-reference.md)
-- [DeepSeek report interpreter](docs/ai-report-interpreter.md)
+- [Multi-LLM report interpreter](docs/ai-report-interpreter.md)
 - [Development guide](docs/development.md)
 - [Evaluation methodology](docs/evaluation.md)
 - [Verification record](docs/verification.md)

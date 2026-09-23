@@ -8,7 +8,7 @@
 - Node.js 24.21.0
 - pnpm 11.19.0
 - TypeScript 5.9.3
-- ContractGuard engine 1.0.1
+- ContractGuard engine 1.1.0
 
 项目最低运行版本为 Node.js 22.13，与 pnpm 11.19 的运行要求一致；CI 使用 Node.js 22 验证主流 LTS 环境。
 
@@ -20,10 +20,10 @@
 | API TypeScript typecheck/build | 通过 |
 | CLI TypeScript typecheck/build | 通过 |
 | Vue application + Vite config typecheck | 通过 |
-| Core unit tests | 35/35 通过 |
-| API tests | 24/24 通过 |
+| Core unit tests | 40/40 通过 |
+| API tests | 31/31 通过 |
 | CLI formatter/security tests | 3/3 通过 |
-| Frontend data-processing tests | 5/5 通过 |
+| Frontend data-processing tests | 8/8 通过 |
 | End-to-end manifest smoke test | 2/2 case 通过 |
 | 静态 Web、API、历史、规则与 HTML 报告链路 | 通过 |
 | 桌面端与 390 px 窄屏 Web 布局 | 通过；未发现页面级横向溢出 |
@@ -31,15 +31,18 @@
 | AI 默认关闭、缺失配置与状态接口 | 通过 |
 | AI 请求裁剪、响应上限、JSON 恢复、结构校验、超时和安全错误降级 | 通过（fake provider） |
 | AI 前端状态与结构化响应归一化 | 通过 |
-| Web → API → AI 适配器 → 结构化展示完整流程 | 通过（本机 mock DeepSeek） |
-| 文档本地链接 | 17 个 Markdown 文件、96 个本地链接通过 |
-| AI 示例 JSON、CI/Compose/Issue Form YAML 与变量覆盖 | 通过（静态校验） |
+| 多 LLM 配置解析、档案选择、能力参数与旧版 DeepSeek fallback | 通过（fake provider；未调用云端） |
+| 规则策略校验、启停/重分类、评分与输入/策略 SHA-256 | 通过 |
+| Web → API → AI 适配器 → 结构化展示完整流程 | 通过（本机 mock OpenAI-compatible 端点） |
+| Windows BAT/PowerShell 启动器：帮助、配置/策略检查、失败退出码、禁用 AI 与健康检查 | 通过；未调用云端 |
+| 文档本地链接 | 18 个 Markdown 文件、118 个本地链接通过 |
+| 配置与示例 | 7 个 YAML、5 个 JSON、17 个环境变量通过静态校验 |
 
 冒烟测试会真正启动已编译 API，确认 Web 静态资源可访问，再读取 `fixtures/evaluation-manifest.json`，逐条创建分析并验证 `mustContain`、`forbiddenSeverities` 与兼容性结论，最后检查 HTML 报告包含证据。
 
-AI API 测试通过注入 fake `fetch` 验证 DeepSeek 请求格式、Bearer key 不进入正文、原始 OpenAPI 不被发送、finding 有界、change ID 必须可追溯、JSON 结构严格校验、列表安全裁剪、带少量外围说明的完整 JSON 恢复、128 KiB 响应上限、响应体挂起时仍能超时，以及上游错误不会泄露 key 或响应正文。默认测试没有调用真实 DeepSeek，因此不会产生云端费用，也不声称验证了当前账号配额、外网连通性或模型自然语言质量。
+AI API 测试通过注入 fake `fetch` 验证档案选择、Provider 专属 token 参数、Bearer key 不进入正文、原始 OpenAPI 不被发送、finding 有界、change ID 必须可追溯、JSON 结构严格校验、列表安全裁剪、带少量外围说明的完整 JSON 恢复、响应大小上限、响应体挂起时仍能超时、HTTP 客户端断开可取消上游请求，以及上游错误不会泄露 key 或响应正文。默认测试没有调用真实云端 Provider，因此不会产生云端费用，也不声称验证了任何账号配额、外网连通性或模型自然语言质量。
 
-另用仅监听本机的 mock DeepSeek HTTP 服务完成浏览器端联调：加载内置 Campus Events 规范、生成确定性报告、填写关注点、调用 AI 路由，并确认页面展示摘要、P0 风险、迁移步骤、测试建议、caveat、关联 `changeId` 与 token 用量。该验证覆盖真实前后端数据流，但不替代拿到用户 key 后的云端连通性测试。
+另用仅监听本机的 mock OpenAI-compatible HTTP 服务完成浏览器端联调：加载内置 Campus Events 规范、生成确定性报告、选择档案、填写关注点、调用 AI 路由，并确认页面展示摘要、实际 Provider/模型、P0 风险、迁移步骤、测试建议、caveat、关联 `changeId` 与 token 用量。该验证覆盖真实前后端数据流，但不替代拿到用户 key 后的云端连通性测试。
 
 ## Fixture 结果
 
