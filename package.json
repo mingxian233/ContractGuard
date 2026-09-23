@@ -3,6 +3,22 @@
   "version": "1.0.1",
   "private": true,
   "description": "A local-first OpenAPI backward-compatibility analysis platform.",
+  "keywords": [
+    "openapi",
+    "api-diff",
+    "breaking-changes",
+    "backward-compatibility",
+    "api-governance",
+    "contract-testing"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mingxian233/ContractGuard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mingxian233/ContractGuard/issues"
+  },
+  "homepage": "https://github.com/mingxian233/ContractGuard#readme",
   "license": "MIT",
   "packageManager": "pnpm@11.19.0",
   "scripts": {
